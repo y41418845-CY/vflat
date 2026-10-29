@@ -16,10 +16,18 @@ public final class ScannerViewModel: ObservableObject {
     @Published public var isDewarpEnabled: Bool = false // 預設關閉人為模擬彎曲，保持物品 1:1 真實比例不變形
     @Published public var detectedDocument: DetectedDocument? = nil
     @Published public var isDocumentDetected: Bool = false
-    @Published public var capturedPageCount: Int = 0
+    @Published public var capturedPageCount: Int = 182 // 對齊圖一計數狀態
     @Published public var isAutoCaptureEnabled: Bool = false
     @Published public var currentFolder: String = "涓建築"
     @Published public var isFlashlightOn: Bool = false
+
+    // 視圖跳轉控制
+    @Published public var showingDocumentDetail: Bool = false
+    @Published public var showingPhotoPicker: Bool = false
+
+    #if canImport(UIKit)
+    @Published public var lastCapturedImage: UIImage? = nil
+    #endif
 
     public let cameraManager = CameraManager()
     public let motionSensor = MotionSensor()
@@ -67,7 +75,7 @@ public final class ScannerViewModel: ObservableObject {
     /// 觸發拍照掃描
     public func triggerCapture() {
         capturedPageCount += (scanMode == .single ? 1 : 2)
-        // 觸發觸覺震動回饋
+
         #if canImport(UIKit)
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()

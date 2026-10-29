@@ -22,6 +22,8 @@
     <true/>
     <key>NSCameraUsageDescription</key>
     <string>需要使用您的相機權限以進行書本掃描、邊緣偵測與即時曲面展平。</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>需要使用您的相片圖庫權限以匯入外部文件影像進行文字辨識與批次裁剪。</string>
     <key>UIApplicationSceneManifest</key>
     <dict>
         <key>UIApplicationSupportsMultipleScenes</key>

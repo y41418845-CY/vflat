@@ -171,6 +171,12 @@ public struct CameraScanView: View {
                 ScanControlBar(viewModel: viewModel)
             }
         }
+        .fullScreenCover(isPresented: $viewModel.showingDocumentDetail) {
+            DocumentDetailView(viewModel: viewModel)
+        }
+        .fullScreenCover(isPresented: $viewModel.showingPhotoPicker) {
+            PhotoImportPickerView(viewModel: viewModel)
+        }
         .task {
             await viewModel.startScanning()
         }

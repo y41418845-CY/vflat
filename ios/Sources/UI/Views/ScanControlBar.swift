@@ -70,8 +70,10 @@ public struct ScanControlBar: View {
 
             // 3. 底部主快門列 (左：掃描縮圖、中：雙環快門鍵、右：相簿按鈕)
             HStack {
-                // 左側：縮圖預覽卡片 (有白邊框，對齊圖一左下)
-                Button(action: {}) {
+                // 左側：縮圖預覽卡片 (有白邊框，對齊圖一左下，點擊開啟圖一頁面)
+                Button(action: {
+                    viewModel.showingDocumentDetail = true
+                }) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 6)
                             .stroke(Color.white, lineWidth: 2)
@@ -110,8 +112,10 @@ public struct ScanControlBar: View {
 
                 Spacer()
 
-                // 右側：相簿匯入圖片按鈕 (對齊圖一右下)
-                Button(action: {}) {
+                // 右側：相簿匯入圖片按鈕 (對齊圖一右下，點擊開啟圖二相簿多選頁面)
+                Button(action: {
+                    viewModel.showingPhotoPicker = true
+                }) {
                     Image(systemName: "photo")
                         .font(.system(size: 26))
                         .foregroundColor(.white)
