@@ -55,7 +55,16 @@ public final class MetalDewarpRenderer: NSObject, MTKViewDelegate {
     }
 
     private func setupPipeline() {
-        guard let library = device.makeDefaultLibrary() else {
+        let library: MTLLibrary?
+        if let defaultLib = device.makeDefaultLibrary() {
+            library = defaultLib
+        } else if let bundleLib = try? device.makeDefaultLibrary(bundle: Bundle.main) {
+            library = bundleLib
+        } else {
+            library = nil
+        }
+
+        guard let library = library else {
             print("[MetalDewarpRenderer] 無法載入預設 Metal Library，請確認 Shaders.metal 已包含在專案中")
             return
         }

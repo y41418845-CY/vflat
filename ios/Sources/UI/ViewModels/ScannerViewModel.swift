@@ -23,21 +23,18 @@ public final class ScannerViewModel: ObservableObject {
     public var metalRenderer: MetalDewarpRenderer?
 
     public init() {
-        setupBindings()
-    }
-
-    private func setupBindings() {
-        // 相機影格直通 Metal 渲染器
-        cameraManager.onFrameCaptured = { [weak self] pixelBuffer in
-            guard let self = self else { return }
-            self.metalRenderer?.feedFrame(pixelBuffer)
-        }
+        // 初始化狀態
     }
 
     /// 當 MetalView 建立並掛載渲染器時進行初始化設定
     public func attachRenderer(_ renderer: MetalDewarpRenderer) {
         self.metalRenderer = renderer
         applyCurvatureMesh()
+
+        // 相機高頻影格（60fps）直接串接線程安全之 Metal 渲染器，徹底避免跨 @MainActor 屬性存取產生的 Data Race 崩潰
+        cameraManager.onFrameCaptured = { [weak renderer] pixelBuffer in
+            renderer?.feedFrame(pixelBuffer)
+        }
     }
 
     /// 更新曲面展平之模擬網格

@@ -18,6 +18,10 @@ targets:
       path: ios/Info.plist
       properties:
         CFBundleDisplayName: "vFlat Scan"
+        NSCameraUsageDescription: "需要使用您的相機權限以進行書本掃描、邊緣偵測與即時曲面展平。"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
     settings:
       base:
         PRODUCT_NAME: "vFlat"
@@ -27,3 +31,8 @@ targets:
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGNING_REQUIRED: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: ios/Info.plist
+        INFOPLIST_KEY_NSCameraUsageDescription: "需要使用您的相機權限以進行書本掃描、邊緣偵測與即時曲面展平。"
+        INFOPLIST_KEY_CFBundleDisplayName: "vFlat Scan"
+

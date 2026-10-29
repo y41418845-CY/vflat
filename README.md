@@ -1,6 +1,6 @@
 # vFlat 逆向工程與架構分析專案 (REA)
 
-- **版本**：v0.5.0
+- **版本**：v0.5.1
 - **目標應用**：vFlat Scan - PDF Scanner (`com.voyagerx.scanner`)
 - **分析樣本**：`vFlat Scan.xapk` (v1.16.8.260930.6c4b190386)
 - **衍生原生 iOS 實作**：`ios/` (vFlat-iOS iPhone 專案)

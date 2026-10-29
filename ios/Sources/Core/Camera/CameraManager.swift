@@ -102,8 +102,14 @@ public final class CameraManager: NSObject, ObservableObject {
 
             // 設定視訊連線方向為縱向 (Portrait)
             if let connection = self.videoOutput.connection(with: .video) {
-                if connection.isVideoOrientationSupported {
-                    connection.videoOrientation = .portrait
+                if #available(iOS 17.0, *) {
+                    if connection.isVideoRotationAngleSupported(90.0) {
+                        connection.videoRotationAngle = 90.0
+                    }
+                } else {
+                    if connection.isVideoOrientationSupported {
+                        connection.videoOrientation = .portrait
+                    }
                 }
                 if connection.isVideoMirroringSupported {
                     connection.isVideoMirrored = false
