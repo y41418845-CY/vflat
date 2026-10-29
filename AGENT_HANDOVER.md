@@ -1,10 +1,10 @@
 # AI Agent 專案交接與工程維護文件 (Handover Document)
 
 > **專案名稱**：vFlat 逆向工程與 iOS 原生重構專案 (`vFlat-iOS`)  
-> **專案版本**：`v0.5.1`  
+> **專案版本**：`v0.9.1`  
 > **最後更新時間**：2026-10-29  
 > **遠端儲存庫**：`https://github.com/y41418845-CY/vflat` (預設分支：`master`)  
-> **本地工作目錄**：`G:\我的雲端硬碟\工具程式\vflat\`
+> **本地工作目錄**：`h:\我的雲端硬碟\工具程式\vflat\`
 
 ---
 
@@ -12,7 +12,7 @@
 
 本專案承接兩大核心任務：
 1. **vFlat 核心演算法逆向工程 (REA Analysis)**：從官方發行之 Android 安裝包（XAPK）中，解構其原生 C++ 函式庫、TFLite 神經網路模型與 GPU 著色器，徹底還原出「25×25 自由曲面展平（Freeform Dewarping）」之數學幾何模型與模型輸出反混淆機制。
-2. **iPhone 原生獨立重構 (`vFlat-iOS`)**：拋棄舊式 OpenGL ES 與 Android JNI 架構，以現代 Apple 原生技術（SwiftUI + AVFoundation + Metal + Accelerate SIMD）完全重新打造零延遲、高幀率（60fps）、極低功耗的 iOS 書本掃描器，並建置 GitHub Actions 雲端自動編譯管線，一鍵輸出可側載之 `vFlat.ipa`。
+2. **iPhone 原生獨立重構 (`vFlat-iOS`)**：以現代 Apple 原生技術（SwiftUI + AVFoundation + Metal + Vision）完全重新打造零延遲、高幀率（60fps）、極低功耗的 iOS 書本與文件掃描器，並建置 GitHub Actions 雲端自動編譯管線，一鍵輸出可側載之 `vFlat.ipa`。
 
 ---
 
@@ -38,57 +38,59 @@
 
 ---
 
-## 三、iOS 原生專案代碼結構 (`ios/`)
+## 三、重大功能修復與技術突破 (v0.9.1 關鍵成果)
+
+### 1. 拍照快門按鈕無功能問題徹底修復
+* **根本原因**：舊版 `triggerCapture()` 僅累加計數與觸發輕微震動，未從相機管線採集畫面，未更新 `lastCapturedImage` 且缺乏視覺反饋。
+* **解決方案**：
+  * 在 `CameraManager.swift` 中建立線程安全的 `latestPixelBuffer` 緩存與 `captureCurrentFrame() -> UIImage?` 高畫質抓幀方法。
+  * 在 `ScannerViewModel.swift` 實作原生相機白光快門閃爍動效（`isShutterFlashing`）、真實影格存檔與 `autoSaveToGallery` 相簿寫入。
+  * 在 `ScanControlBar.swift` 將左下角縮圖由靜態圖示升級為即時渲染的實體照片縮圖，點擊直接進入 `DocumentDetailView` 檢視拍攝成果。
+
+### 2. 邊緣辨識「抓不到物品上方、切邊偏差」問題徹底修復
+* **根本原因**：
+  1. 舊版 `VNDetectRectanglesRequest` 設定 `maximumObservations = 1`，當物品（如藥盒或文件）上半部有文字或不同色塊時，Vision 誤將下半部高對比區塊識別為獨立矩形，拋棄了上方結構。
+  2. 舊版未做 Aspect-Fill 座標映射：相機影格為 9:16（0.5625），而 iPhone 全螢幕為 19.5:9（~0.461）。螢幕以高度填滿時左右被裁切，若直接使用原始標準化座標乘以螢幕寬度，會造成嚴重的水平與垂直幾何錯位。
+* **解決方案**：
+  * **多候選最大面積評估（Largest Bounding Box）**：放寬 `maximumObservations = 8`、`quadratureTolerance = 45.0`、`minimumAspectRatio = 0.1`，計算所有候選四邊形面積，挑選整體外輪廓最大之框線，徹底解決「上方抓不到邊」的困擾。
+  * **物理級 Aspect-Fill 螢幕投影**：在 `ScanGuideOverlay.swift` 實作 `aspectFillPoint()`，精準補償相機與螢幕比例差帶來的位移，使框線與螢幕中物品 100% 貼合。
+  * **Metal 著色器 1:1 比例保真**：在 `Shaders.metal` 中以 Aspect-Fill 取樣相機紋理，物品在螢幕上完全維持 1:1 真實物理比例，絕無拉伸扭曲。
+
+---
+
+## 四、iOS 原生專案代碼結構 (`ios/`)
 
 ```
 ios/
 ├── Package.swift                    # Swift 5.9 SPM 套件定義 (iOS 16.0+)
-├── Info.plist                       # 相機權限宣告 (NSCameraUsageDescription)
+├── Info.plist                       # 相機與相簿權限宣告
 ├── README.md                        # Xcode 本機開啟與執行手冊
 ├── Sources/
 │   ├── Core/                        # 核心底層驅動與數學模組
-│   │   ├── Camera/                  # AVCaptureSession 4K/60fps 串流採集
+│   │   ├── Camera/                  # AVCaptureSession 4K/60fps 串流採集與即時靜態抓幀
 │   │   ├── Motion/                  # CoreMotion 陀螺儀 60Hz 俯拍水平傾角感測
-│   │   ├── Dewarp/                  # 25x25 幾何弧長微分展開與網格生成 (SIMD)
-│   │   └── Metal/                   # Metal MSL 雙線性重採樣展平著色器與零拷貝渲染器
+│   │   ├── Dewarp/                  # 25x25 幾何弧長微分展開、Vision 多候選矩形偵測與 EMA 防抖
+│   │   └── Metal/                   # Metal MSL Aspect-Fill 渲染器與零拷貝紋理快取
 │   ├── UI/                          # 現代 SwiftUI 介面
-│   │   ├── Views/                   # CameraScanView、ScanControlBar、ScanGuideOverlay
+│   │   ├── Views/                   # CameraScanView、ScanControlBar、ScanGuideOverlay、DocumentDetailView、PhotoImportPickerView、SettingsView
 │   │   └── ViewModels/              # ScannerViewModel 主狀態協調器
 │   └── vFlatApp/                    # 應用程式 App 進入點
 └── Tests/
-    └── DewarpTests/                 # 幾何數學單元測試 (驗證平坦與彎曲微積分物理特性)
+    └── DewarpTests/                 # 幾何數學單元測試
 ```
 
 ---
 
-## 四、雲端 CI/CD 自動編譯與發布管線
+## 五、雲端 CI/CD 自動編譯與發布管線
 
 * **設定檔**：`.github/workflows/build_ios.yml`
 * **工程生成**：`project.yml` 搭配 `xcodegen`。
 * **建置環境**：GitHub Actions `macos-15` (macOS Sequoia + Xcode 16)。
 * **輸出機制**：
-  * 編譯產出未簽名之 `vFlat.app` 並打包為 `vFlat.ipa`。
-  * 自動推送並發布至 **GitHub Releases (`v0.4.4` 及後續版本)**，徹底繞過 GitHub Actions 免費用戶之 Artifact 空間配額限制。
+  * 自動編譯產出未簽名之 `vFlat.app` 並打包為 `vFlat.ipa`。
+  * 自動下載至本地專案目錄 `vFlat.ipa`。
 * **實體手機安裝路徑**：
-  * 下載 `vFlat.ipa` -> 使用 Windows 版 **Sideloadly** 拖入 IPA -> 輸入個人 Apple ID 即可一鍵簽名側載至實體 iPhone。
-
----
-
-## 五、接手 Agent 下一步待辦清單 (Roadmap & Next Steps)
-
-後續接手的 AI Agent 或工程師，可依照以下優先順序繼續擴充專案：
-
-### 優先級 1：Core ML 模型整合 (替換 POC 模擬網格)
-1. **模型格式轉換**：使用 Python `coremltools` 將 `assets/models/freeform_v3_2.dat` 轉換為 Apple Core ML 格式（`.mlpackage`），啟用 Apple Neural Engine (ANE) 加速。
-2. **張量管線接入**：在 `CameraManager` 影格回呼中，以 15~20fps 節流（Throttle）非同步調用 Core ML 模型，將預測出的 625 個控制點座標即時傳入 `MetalDewarpRenderer.updateMesh()`。
-
-### 優先級 2：多頁 PDF 匯出與離線 OCR (VisionKit)
-1. 整合 iOS 原生 `VisionKit` (`VNRecognizeTextRequest`)，在拍照時擷取畫面中的文字座標與內容（支援離線繁體中文/英文）。
-2. 使用 `PDFKit` 將展平後的高解析度圖檔合成多頁 PDF，並嵌入不可見文字層，產出標準可搜尋的 **Searchable PDF**。
-
-### 優先級 3：雙頁中縫分割與手指修復 (Inpainting)
-1. 實作雙頁模式的中縫偵測與裁切邏輯（單次快門自動拆分為左右兩頁）。
-2. 移植 `finger_mask_v1_1.dat` 與 Metal Inpainting 著色器，抹除按壓在書本邊緣的手指。
+  * 使用 Windows 版 **Sideloadly** 拖入 `vFlat.ipa` -> 輸入個人 Apple ID 即可一鍵簽名側載至實體 iPhone。
 
 ---
 
