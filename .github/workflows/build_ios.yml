@@ -7,6 +7,9 @@ on:
     branches: [ master, main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-15
@@ -16,8 +19,6 @@ jobs:
 
       - name: Select Xcode Version
         run: |
-          echo "Available Xcode installations:"
-          ls -d /Applications/Xcode* || true
           if ls -d /Applications/Xcode_16*.app 1> /dev/null 2>&1; then
             TARGET_XCODE=$(ls -d /Applications/Xcode_16*.app | sort -V | tail -n 1)
             echo "Selecting $TARGET_XCODE"
@@ -49,9 +50,21 @@ jobs:
           zip -r vFlat.ipa Payload
           rm -rf Payload
 
-      - name: Upload IPA Artifact
+      - name: Release IPA on GitHub
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+        with:
+          tag_name: "v0.4.4"
+          name: "vFlat iOS v0.4.4"
+          body: "vFlat Scan iOS 雲端自動編譯產出之未簽名 IPA 安裝包，可透過 Sideloadly 進行免越獄安裝。"
+          files: vFlat.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload IPA Artifact (Optional)
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: vFlat-iOS-Unsigned-IPA
           path: vFlat.ipa
-          retention-days: 14
+          retention-days: 7
