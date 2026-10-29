@@ -24,7 +24,7 @@ public final class MetalDewarpRenderer: NSObject, MTKViewDelegate {
 
     // 著色器全域參數
     private var uniforms = DewarpUniforms(
-        viewportSize: vector_float2(1.0, 1.0),
+        viewportSize: SIMD2<Float>(1.0, 1.0),
         dewarpStrength: 1.0,
         edgeFeather: 0.02,
         renderMode: 1
@@ -156,7 +156,7 @@ public final class MetalDewarpRenderer: NSObject, MTKViewDelegate {
     // MARK: - MTKViewDelegate
     public func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         lock.lock()
-        uniforms.viewportSize = vector_float2(Float(size.width), Float(size.height))
+        uniforms.viewportSize = SIMD2<Float>(Float(size.width), Float(size.height))
         lock.unlock()
     }
 

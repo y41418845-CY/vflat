@@ -21,6 +21,8 @@ typedef struct {
     float edgeFeather;
     // 模式：0 為相機原圖直通，1 為 25x25 幾何網格展平
     int renderMode;
+    // 8 位元組對齊填充
+    int _padding;
 } DewarpUniforms;
 
 #endif /* ShaderTypes_h */
