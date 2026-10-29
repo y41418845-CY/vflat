@@ -42,8 +42,11 @@ public final class ScannerViewModel: ObservableObject {
     @Published public var autoSaveToGallery: Bool = false
     @Published public var scanResolution: String = "4K"
 
+    @Published public var isShutterFlashing: Bool = false
+
     #if canImport(UIKit)
     @Published public var lastCapturedImage: UIImage? = nil
+    @Published public var capturedImages: [UIImage] = []
     #endif
 
     public let cameraManager = CameraManager()
@@ -89,14 +92,36 @@ public final class ScannerViewModel: ObservableObject {
         applyCurvatureMesh()
     }
 
-    /// 觸發拍照掃描
+    /// 觸發拍照掃描 (具備原生相機快門閃爍動畫、真實影格擷取、縮圖更新與相簿儲存)
     public func triggerCapture() {
-        capturedPageCount += (scanMode == .single ? 1 : 2)
-
         #if canImport(UIKit)
-        let generator = UIImpactFeedbackGenerator(style: .medium)
-        generator.impactOccurred()
+        if hapticFeedback {
+            let generator = UIImpactFeedbackGenerator(style: .heavy)
+            generator.impactOccurred()
+        }
+
+        // 1. 觸發原生快門全螢幕白光閃爍視覺回饋
+        withAnimation(.easeOut(duration: 0.08)) {
+            self.isShutterFlashing = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            withAnimation(.easeIn(duration: 0.12)) {
+                self.isShutterFlashing = false
+            }
+        }
+
+        // 2. 從相機串流零延遲擷取當前最新畫面
+        if let photo = cameraManager.captureCurrentFrame() {
+            self.lastCapturedImage = photo
+            self.capturedImages.append(photo)
+
+            if autoSaveToGallery {
+                UIImageWriteToSavedPhotosAlbum(photo, nil, nil, nil)
+            }
+        }
         #endif
+
+        capturedPageCount += (scanMode == .single ? 1 : 2)
     }
 
     /// 啟動掃描工作流程

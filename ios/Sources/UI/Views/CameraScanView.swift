@@ -151,6 +151,13 @@ public struct CameraScanView: View {
                 // 底部控制列
                 ScanControlBar(viewModel: viewModel)
             }
+
+            // 4. 原生相機快門閃爍白光視覺回饋 (Shutter Flash Animation)
+            if viewModel.isShutterFlashing {
+                Color.white
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            }
         }
         .fullScreenCover(isPresented: $viewModel.showingDocumentDetail) {
             DocumentDetailView(viewModel: viewModel)

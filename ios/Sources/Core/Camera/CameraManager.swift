@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import CoreVideo
+import CoreImage
 
 #if canImport(UIKit)
 import UIKit
@@ -22,6 +23,9 @@ public final class CameraManager: NSObject, ObservableObject {
 
     /// 每一影格產出時之回呼常數 (傳送 CVPixelBuffer)
     public var onFrameCaptured: ((CVPixelBuffer) -> Void)?
+    private let bufferLock = NSLock()
+    private var latestPixelBuffer: CVPixelBuffer?
+    private lazy var ciContext = CIContext()
 
     @Published public private(set) var isRunning: Bool = false
     @Published public private(set) var isAuthorized: Bool = false
@@ -151,6 +155,25 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
         from connection: AVCaptureConnection
     ) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        bufferLock.lock()
+        latestPixelBuffer = pixelBuffer
+        bufferLock.unlock()
         onFrameCaptured?(pixelBuffer)
+    }
+
+    /// 零延遲從最新視訊串流影格擷取高品質靜態照片
+    public func captureCurrentFrame() -> UIImage? {
+        bufferLock.lock()
+        guard let pixelBuffer = latestPixelBuffer else {
+            bufferLock.unlock()
+            return nil
+        }
+        bufferLock.unlock()
+
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        guard let cgImage = ciContext.createCGImage(ciImage, from: ciImage.extent) else {
+            return nil
+        }
+        return UIImage(cgImage: cgImage)
     }
 }

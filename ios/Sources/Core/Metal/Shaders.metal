@@ -38,8 +38,23 @@ fragment float4 dewarpFragmentShader(
         address::clamp_to_edge
     );
 
+    float2 sampleUV = in.texCoord;
+
+    // 當非人工曲面模式（renderMode == 0）時，啟用 1:1 原生 Aspect-Fill 比例映射，防止畫面被拉長拉扁
+    if (uniforms.viewportSize.x > 0.0 && uniforms.viewportSize.y > 0.0 && uniforms.renderMode == 0) {
+        float viewAspect = uniforms.viewportSize.x / uniforms.viewportSize.y;
+        float texAspect = float(colorTexture.get_width()) / float(colorTexture.get_height());
+        if (viewAspect < texAspect) {
+            float scale = viewAspect / texAspect;
+            sampleUV.x = (sampleUV.x - 0.5) * scale + 0.5;
+        } else if (viewAspect > texAspect) {
+            float scale = texAspect / viewAspect;
+            sampleUV.y = (sampleUV.y - 0.5) * scale + 0.5;
+        }
+    }
+
     // 採樣相機原始影格紋理
-    float4 color = colorTexture.sample(textureSampler, in.texCoord);
+    float4 color = colorTexture.sample(textureSampler, sampleUV);
 
     // 模式 1：開啟展平增強，執行邊緣羽化與對比微調
     if (uniforms.renderMode == 1) {

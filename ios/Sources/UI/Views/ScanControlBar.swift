@@ -80,7 +80,14 @@ public struct ScanControlBar: View {
                             .frame(width: 48, height: 60)
                             .background(Color.black.opacity(0.3))
 
-                        if viewModel.capturedPageCount > 0 {
+                        if let img = viewModel.lastCapturedImage {
+                            Image(uiImage: img)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 44, height: 56)
+                                .clipped()
+                                .cornerRadius(4)
+                        } else if viewModel.capturedPageCount > 0 {
                             Image(systemName: "doc.text.fill")
                                 .font(.system(size: 24))
                                 .foregroundColor(.white.opacity(0.9))

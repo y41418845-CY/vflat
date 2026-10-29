@@ -77,46 +77,68 @@ public final class DocumentDetector {
 
                 if error == nil,
                    let results = req.results as? [VNRectangleObservation],
-                   let topRect = results.first,
-                   topRect.confidence > 0.45 {
+                   !results.isEmpty {
 
-                    // Vision 座標轉換為標準 (0,0 左上角)
-                    let rawDoc = DetectedDocument(
-                        topLeft: CGPoint(x: topRect.topLeft.x, y: 1.0 - topRect.topLeft.y),
-                        topRight: CGPoint(x: topRect.topRight.x, y: 1.0 - topRect.topRight.y),
-                        bottomRight: CGPoint(x: topRect.bottomRight.x, y: 1.0 - topRect.bottomRight.y),
-                        bottomLeft: CGPoint(x: topRect.bottomLeft.x, y: 1.0 - topRect.bottomLeft.y),
-                        confidence: topRect.confidence
-                    )
-
-                    // 平滑插值 (EMA Smoothing)，徹底消除框線跳來跳去的抽搐抖動
-                    let smoothed: DetectedDocument
-                    if let previous = self.currentSmoothedDoc {
-                        smoothed = previous.smoothed(with: rawDoc, alpha: 0.32)
-                    } else {
-                        smoothed = rawDoc
+                    // 計算四邊形在標準化空間中的有效面積
+                    func approxArea(_ r: VNRectangleObservation) -> CGFloat {
+                        let w1 = hypot(r.topRight.x - r.topLeft.x, r.topRight.y - r.topLeft.y)
+                        let w2 = hypot(r.bottomRight.x - r.bottomLeft.x, r.bottomRight.y - r.bottomLeft.y)
+                        let h1 = hypot(r.bottomLeft.x - r.topLeft.x, r.bottomLeft.y - r.topLeft.y)
+                        let h2 = hypot(r.bottomRight.x - r.topRight.x, r.bottomRight.y - r.topRight.y)
+                        return ((w1 + w2) * 0.5) * ((h1 + h2) * 0.5)
                     }
 
-                    self.currentSmoothedDoc = smoothed
-                    self.lastDetectedTime = now
-                    self.onDocumentDetected?(smoothed)
+                    // 挑選最大面積的候選矩形（鎖定整體物品或藥盒外框，避免誤鎖局部文字區）
+                    if let bestRect = results.max(by: { approxArea($0) < approxArea($1) }),
+                       bestRect.confidence >= 0.20 {
 
+                        // Vision 座標轉換為標準 (0,0 左上角)
+                        let rawDoc = DetectedDocument(
+                            topLeft: CGPoint(x: bestRect.topLeft.x, y: 1.0 - bestRect.topLeft.y),
+                            topRight: CGPoint(x: bestRect.topRight.x, y: 1.0 - bestRect.topRight.y),
+                            bottomRight: CGPoint(x: bestRect.bottomRight.x, y: 1.0 - bestRect.bottomRight.y),
+                            bottomLeft: CGPoint(x: bestRect.bottomLeft.x, y: 1.0 - bestRect.bottomLeft.y),
+                            confidence: bestRect.confidence
+                        )
+
+                        // 自適應平滑插值 (EMA Smoothing)
+                        let smoothed: DetectedDocument
+                        if let previous = self.currentSmoothedDoc {
+                            // 若新邊框顯著大於舊邊框（發現更完整的外邊界），加速貼合
+                            let prevWidth = hypot(previous.topRight.x - previous.topLeft.x, previous.topRight.y - previous.topLeft.y)
+                            let prevHeight = hypot(previous.bottomLeft.x - previous.topLeft.x, previous.bottomLeft.y - previous.topLeft.y)
+                            let prevArea = prevWidth * prevHeight
+                            let newArea = approxArea(bestRect)
+
+                            let alpha: CGFloat = (newArea > prevArea * 1.25) ? 0.75 : 0.35
+                            smoothed = previous.smoothed(with: rawDoc, alpha: alpha)
+                        } else {
+                            smoothed = rawDoc
+                        }
+
+                        self.currentSmoothedDoc = smoothed
+                        self.lastDetectedTime = now
+                        self.onDocumentDetected?(smoothed)
+                        return
+                    }
+                }
+
+                // 若當前影格短暫未檢測出，在滯後窗口內維持上一幀座標，避免高頻閃爍
+                if let previous = self.currentSmoothedDoc, now - self.lastDetectedTime < self.persistenceWindow {
+                    self.onDocumentDetected?(previous)
                 } else {
-                    // 若當前影格短暫未檢測出，在滯後窗口內維持上一幀座標，避免高頻閃爍
-                    if let previous = self.currentSmoothedDoc, now - self.lastDetectedTime < self.persistenceWindow {
-                        self.onDocumentDetected?(previous)
-                    } else {
-                        self.currentSmoothedDoc = nil
-                        self.onDocumentDetected?(nil)
-                    }
+                    self.currentSmoothedDoc = nil
+                    self.onDocumentDetected?(nil)
                 }
             }
 
-            request.maximumObservations = 1
-            request.minimumConfidence = 0.45
-            request.minimumAspectRatio = 0.2
+            // 放寬辨識條件，以捕捉藥盒、不規則長條物與書籍整體輪廓
+            request.maximumObservations = 8
+            request.minimumConfidence = 0.20
+            request.minimumAspectRatio = 0.1
             request.maximumAspectRatio = 1.0
-            request.quadratureTolerance = 25.0
+            request.quadratureTolerance = 45.0
+            request.minimumSize = 0.1
 
             let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
             do {

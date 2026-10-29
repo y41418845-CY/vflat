@@ -14,29 +14,44 @@ public struct ScanGuideOverlay: View {
             let width = proxy.size.width
             let height = proxy.size.height
 
-            ZStack {
-                // 1. 自動偵測之文件邊界框線 (如圖二之青綠/黃色選取框)
-                if let doc = viewModel.detectedDocument {
-                    Path { path in
-                        let p1 = CGPoint(x: doc.topLeft.x * width, y: doc.topLeft.y * height)
-                        let p2 = CGPoint(x: doc.topRight.x * width, y: doc.topRight.y * height)
-                        let p3 = CGPoint(x: doc.bottomRight.x * width, y: doc.bottomRight.y * height)
-                        let p4 = CGPoint(x: doc.bottomLeft.x * width, y: doc.bottomLeft.y * height)
+            // 將相機標準化座標轉換為全螢幕 Aspect-Fill 投影，保證邊界框與實體物品邊緣 100% 貼合
+            func aspectFillPoint(_ pt: CGPoint, camAspect: CGFloat = 9.0 / 16.0) -> CGPoint {
+                let viewAspect = width / height
+                if viewAspect < camAspect {
+                    // 螢幕較細長，以高度為基準填滿，左右側裁切
+                    let renderedWidth = height * camAspect
+                    let offsetX = (renderedWidth - width) / 2.0
+                    let screenX = pt.x * renderedWidth - offsetX
+                    let screenY = pt.y * height
+                    return CGPoint(x: screenX, y: screenY)
+                } else {
+                    // 螢幕較寬，以寬度為基準填滿，上下端裁切
+                    let renderedHeight = width / camAspect
+                    let offsetY = (renderedHeight - height) / 2.0
+                    let screenX = pt.x * width
+                    let screenY = pt.y * renderedHeight - offsetY
+                    return CGPoint(x: screenX, y: screenY)
+                }
+            }
 
+            ZStack {
+                // 1. 自動偵測之文件邊界框線 (精確貼合整體外輪廓)
+                if let doc = viewModel.detectedDocument {
+                    let p1 = aspectFillPoint(doc.topLeft)
+                    let p2 = aspectFillPoint(doc.topRight)
+                    let p3 = aspectFillPoint(doc.bottomRight)
+                    let p4 = aspectFillPoint(doc.bottomLeft)
+
+                    Path { path in
                         path.move(to: p1)
                         path.addLine(to: p2)
                         path.addLine(to: p3)
                         path.addLine(to: p4)
                         path.closeSubpath()
                     }
-                    .fill(Color(red: 0.1, green: 0.8, blue: 0.7).opacity(0.18)) // 輕微半透明填色
+                    .fill(Color(red: 0.98, green: 0.85, blue: 0.25).opacity(0.18)) // 原版 vFlat 之微光半透明填色
 
                     Path { path in
-                        let p1 = CGPoint(x: doc.topLeft.x * width, y: doc.topLeft.y * height)
-                        let p2 = CGPoint(x: doc.topRight.x * width, y: doc.topRight.y * height)
-                        let p3 = CGPoint(x: doc.bottomRight.x * width, y: doc.bottomRight.y * height)
-                        let p4 = CGPoint(x: doc.bottomLeft.x * width, y: doc.bottomLeft.y * height)
-
                         path.move(to: p1)
                         path.addLine(to: p2)
                         path.addLine(to: p3)
@@ -44,7 +59,7 @@ public struct ScanGuideOverlay: View {
                         path.closeSubpath()
                     }
                     .stroke(
-                        Color(red: 0.2, green: 0.9, blue: 0.8),
+                        Color(red: 0.98, green: 0.85, blue: 0.25),
                         style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
                     )
                 }
