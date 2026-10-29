@@ -37,6 +37,7 @@ public struct MetalDewarpViewRepresentable: UIViewRepresentable {
 #endif
 
 /// 主掃描相機畫面 (SwiftUI)
+/// 完整對齊原版 iPhone vFlat UI (圖一、圖二)
 public struct CameraScanView: View {
     @StateObject private var viewModel = ScannerViewModel()
 
@@ -47,7 +48,7 @@ public struct CameraScanView: View {
             // 底層：黑底背板
             Color.black.ignoresSafeArea()
 
-            // 1. Metal 即時相機與展平渲染視圖
+            // 1. Metal 即時相機渲染視圖 (1:1 原生平坦真實比例)
             #if canImport(UIKit)
             MetalDewarpViewRepresentable(viewModel: viewModel)
                 .ignoresSafeArea()
@@ -56,32 +57,117 @@ public struct CameraScanView: View {
                 .foregroundColor(.white)
             #endif
 
-            // 2. 輔助導引層 (中縫線、水平儀、對焦提示)
+            // 2. 輔助導引層 (自動文件邊界框選、中央「尋找文件」標籤、十字姿態儀)
             ScanGuideOverlay(viewModel: viewModel)
 
-            // 3. 頂部工具列 (閃光燈、設定)
-            VStack {
-                HStack {
-                    Image(systemName: "book.fill")
-                        .foregroundColor(.blue)
-                    Text("vFlat-iOS")
-                        .font(.headline)
-                        .foregroundColor(.white)
-                    Spacer()
+            // 3. 頂部工具列與底部控制層
+            VStack(spacing: 0) {
+                // 頂部主導航列 (資料庫、Upgrade、設定) - 對齊圖一最上方
+                HStack(spacing: 12) {
+                    // 左：資料庫按鈕
                     Button(action: {}) {
-                        Image(systemName: "bolt.badge.automatic.fill")
+                        HStack(spacing: 6) {
+                            Image(systemName: "folder")
+                                .font(.system(size: 14, weight: .semibold))
+                            Text("資料庫")
+                                .font(.system(size: 15, weight: .bold))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Color.white.opacity(0.18))
+                        .clipShape(Capsule())
+                    }
+
+                    Spacer()
+
+                    // 中：Upgrade 皇冠升級按鈕
+                    Button(action: {}) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "crown.fill")
+                                .font(.system(size: 14))
+                                .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
+                            Text("Upgrade")
+                                .font(.system(size: 16, weight: .heavy))
+                                .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 8)
+                        .background(Color.black.opacity(0.5))
+                        .overlay(
+                            Capsule().stroke(Color(red: 0.98, green: 0.82, blue: 0.35).opacity(0.6), lineWidth: 1.5)
+                        )
+                        .clipShape(Capsule())
+                    }
+
+                    Spacer()
+
+                    // 右：設定齒輪按鈕
+                    Button(action: {}) {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 20))
                             .foregroundColor(.white)
                             .padding(8)
-                            .background(.ultraThinMaterial)
+                            .background(Color.white.opacity(0.18))
                             .clipShape(Circle())
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
+                .padding(.horizontal, 16)
+                .padding(.top, 44) // 避開安全區域與動態島
+
+                // 次頂部功能列 (閃光燈、定時器、Auto Scan 徽章、濾鏡) - 對齊圖一
+                HStack {
+                    Button(action: {
+                        viewModel.isFlashlightOn.toggle()
+                    }) {
+                        Image(systemName: viewModel.isFlashlightOn ? "bolt.fill" : "bolt")
+                            .font(.system(size: 18))
+                            .foregroundColor(viewModel.isFlashlightOn ? .yellow : .white)
+                    }
+
+                    Spacer()
+
+                    Button(action: {}) {
+                        Image(systemName: "timer")
+                            .font(.system(size: 18))
+                            .foregroundColor(.white)
+                    }
+
+                    Spacer()
+
+                    Button(action: {}) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "crown.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(.yellow)
+                            Text("AUTO\nSCAN")
+                                .font(.system(size: 9, weight: .bold))
+                                .lineLimit(2)
+                                .foregroundColor(.white)
+                        }
+                    }
+
+                    Spacer()
+
+                    Button(action: {}) {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "rays")
+                                .font(.system(size: 20))
+                                .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
+
+                            Circle()
+                                .fill(Color.red)
+                                .frame(width: 6, height: 6)
+                                .offset(x: 2, y: -2)
+                        }
+                    }
+                }
+                .padding(.horizontal, 28)
+                .padding(.top, 14)
 
                 Spacer()
 
-                // 4. 底部控制列
+                // 底部控制列
                 ScanControlBar(viewModel: viewModel)
             }
         }

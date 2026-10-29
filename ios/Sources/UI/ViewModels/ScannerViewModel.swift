@@ -13,17 +13,30 @@ public enum ScanMode: String, CaseIterable {
 @MainActor
 public final class ScannerViewModel: ObservableObject {
     @Published public var scanMode: ScanMode = .single
-    @Published public var isDewarpEnabled: Bool = true
-    @Published public var simulatedCurvature: Float = 0.15 // 供 POC 測試用之彎曲強度
+    @Published public var isDewarpEnabled: Bool = false // 預設關閉人為模擬彎曲，保持物品 1:1 真實比例不變形
+    @Published public var detectedDocument: DetectedDocument? = nil
+    @Published public var isDocumentDetected: Bool = false
     @Published public var capturedPageCount: Int = 0
     @Published public var isAutoCaptureEnabled: Bool = false
+    @Published public var currentFolder: String = "涓建築"
+    @Published public var isFlashlightOn: Bool = false
 
     public let cameraManager = CameraManager()
     public let motionSensor = MotionSensor()
+    public let documentDetector = DocumentDetector()
     public var metalRenderer: MetalDewarpRenderer?
 
     public init() {
-        // 初始化狀態
+        setupDetector()
+    }
+
+    private func setupDetector() {
+        documentDetector.onDocumentDetected = { [weak self] doc in
+            DispatchQueue.main.async {
+                self?.detectedDocument = doc
+                self?.isDocumentDetected = (doc != nil)
+            }
+        }
     }
 
     /// 當 MetalView 建立並掛載渲染器時進行初始化設定
@@ -31,23 +44,18 @@ public final class ScannerViewModel: ObservableObject {
         self.metalRenderer = renderer
         applyCurvatureMesh()
 
-        // 相機高頻影格（60fps）直接串接線程安全之 Metal 渲染器，徹底避免跨 @MainActor 屬性存取產生的 Data Race 崩潰
-        cameraManager.onFrameCaptured = { [weak renderer] pixelBuffer in
+        // 相機高頻影格（60fps）串接 Metal 渲染器與 Vision 文件偵測
+        cameraManager.onFrameCaptured = { [weak self, weak renderer] pixelBuffer in
             renderer?.feedFrame(pixelBuffer)
+            self?.documentDetector.processFrame(pixelBuffer)
         }
     }
 
-    /// 更新曲面展平之模擬網格
+    /// 更新曲面展平網格 (預設平坦 1:1，確保真實物品畫面平整完全不變形)
     public func applyCurvatureMesh() {
-        if isDewarpEnabled {
-            let curved = DewarpGeometry.makeCurvedGrid(curvature: simulatedCurvature)
-            metalRenderer?.updateMesh(with: curved)
-            metalRenderer?.setDewarpStrength(1.0, mode: 1)
-        } else {
-            let flat = DewarpGeometry.makeFlatGrid()
-            metalRenderer?.updateMesh(with: flat)
-            metalRenderer?.setDewarpStrength(0.0, mode: 0)
-        }
+        let flat = DewarpGeometry.makeFlatGrid()
+        metalRenderer?.updateMesh(with: flat)
+        metalRenderer?.setDewarpStrength(0.0, mode: 0)
     }
 
     /// 切換展平開關
