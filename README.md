@@ -1,10 +1,11 @@
 # vFlat 逆向工程與架構分析專案 (REA)
 
-- **版本**：v0.4.0
+- **版本**：v0.5.0
 - **目標應用**：vFlat Scan - PDF Scanner (`com.voyagerx.scanner`)
 - **分析樣本**：`vFlat Scan.xapk` (v1.16.8.260930.6c4b190386)
 - **衍生原生 iOS 實作**：`ios/` (vFlat-iOS iPhone 專案)
 - **遠端代碼庫**：`https://github.com/y41418845-CY/vflat`
+- **AI Agent 交接手冊**：[`AGENT_HANDOVER.md`](file:///g:/我的雲端硬碟/工具程式/vflat/AGENT_HANDOVER.md)
 
 ## 專案說明
 本專案存放針對 vFlat Android 版本的逆向工程（REA）分析記錄、原生 C++ 函式庫分析、AI 模型清單與 25x25 自由曲面展平演算法逆向成果，並包含使用 Swift + Metal + AVFoundation 重新構建之全新 iPhone 專案 (`ios/`) 與 GitHub Actions 雲端自動建置 CI/CD 管線。
