@@ -5,8 +5,14 @@
 *.ipa
 *.dex
 *.jar
+*.dat
+*.so
+*.json
 
-# 反編譯與分析產出目錄
+# 解包目錄與資產
+apks/
+assets/
+glsl/
 decompiled/
 build/
 dist/
