@@ -202,6 +202,46 @@ struct CandidateQuad {
         )
         return candidate.isValidGeometry ? candidate : nil
     }
+
+    /// 沿四邊形軸向法向量自適應向外延伸，精準貼合物體實體硬外框，解決模型僅框住內部印刷文字的內縮問題
+    func expandedToPhysicalBounds(marginRatioX: CGFloat = 0.05, marginRatioY: CGFloat = 0.08) -> CandidateQuad {
+        let w = (topLen + botLen) * 0.5
+        let h = (leftLen + rightLen) * 0.5
+
+        let expandX = w * marginRatioX
+        let expandY = h * marginRatioY
+
+        let dxTop = (topRight.x - topLeft.x) / max(topLen, 0.001)
+        let dyTop = (topRight.y - topLeft.y) / max(topLen, 0.001)
+
+        let dxLeft = (bottomLeft.x - topLeft.x) / max(leftLen, 0.001)
+        let dyLeft = (bottomLeft.y - topLeft.y) / max(leftLen, 0.001)
+
+        let newTL = CGPoint(
+            x: max(0.0, min(1.0, topLeft.x - dxTop * expandX - dxLeft * expandY)),
+            y: max(0.0, min(1.0, topLeft.y - dyTop * expandX - dyLeft * expandY))
+        )
+        let newTR = CGPoint(
+            x: max(0.0, min(1.0, topRight.x + dxTop * expandX - dxLeft * expandY)),
+            y: max(0.0, min(1.0, topRight.y + dyTop * expandX - dyLeft * expandY))
+        )
+        let newBR = CGPoint(
+            x: max(0.0, min(1.0, bottomRight.x + dxTop * expandX + dxLeft * expandY)),
+            y: max(0.0, min(1.0, bottomRight.y + dyTop * expandX + dyLeft * expandY))
+        )
+        let newBL = CGPoint(
+            x: max(0.0, min(1.0, bottomLeft.x - dxTop * expandX + dxLeft * expandY)),
+            y: max(0.0, min(1.0, bottomLeft.y - dyTop * expandX + dyLeft * expandY))
+        )
+
+        return CandidateQuad(
+            topLeft: newTL,
+            topRight: newTR,
+            bottomRight: newBR,
+            bottomLeft: newBL,
+            confidence: self.confidence
+        )
+    }
 }
 
 /// 透過 Apple Vision 框架在相機串流中即時偵測文件/矩形邊界，並具備 EMA 平滑防抖與防閃爍延遲
@@ -307,14 +347,15 @@ public final class DocumentDetector {
                 selectedQuad = mergedList.max(by: { $0.score < $1.score })
             }
 
-            // 3. 套用角點最小位移對齊與自適應 EMA 平滑
+            // 3. 套用實體外輪廓自適應吸附、角點最小位移對齊與自適應 EMA 平滑
             if let best = selectedQuad {
+                let physical = best.expandedToPhysicalBounds(marginRatioX: 0.05, marginRatioY: 0.08)
                 let rawDoc = DetectedDocument(
-                    topLeft: best.topLeft,
-                    topRight: best.topRight,
-                    bottomRight: best.bottomRight,
-                    bottomLeft: best.bottomLeft,
-                    confidence: best.confidence
+                    topLeft: physical.topLeft,
+                    topRight: physical.topRight,
+                    bottomRight: physical.bottomRight,
+                    bottomLeft: physical.bottomLeft,
+                    confidence: physical.confidence
                 )
 
                 let smoothed: DetectedDocument

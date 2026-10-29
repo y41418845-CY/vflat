@@ -58,7 +58,9 @@ public struct CameraScanView: View {
             #endif
 
             // 2. 輔助導引層 (自動文件邊界框選、中央「尋找文件」標籤、十字姿態儀)
+            // 必須設定 ignoresSafeArea()，使 GeometryReader 取得全螢幕滿版畫布 (393x852)，與底層相機紋理 100% 像素對齊
             ScanGuideOverlay(viewModel: viewModel)
+                .ignoresSafeArea()
 
             // 3. 頂部工具列與底部控制層
             VStack(spacing: 0) {
