@@ -40,8 +40,8 @@ fragment float4 dewarpFragmentShader(
 
     float2 sampleUV = in.texCoord;
 
-    // 當非人工曲面模式（renderMode == 0）時，啟用 1:1 原生 Aspect-Fill 比例映射，防止畫面被拉長拉扁
-    if (uniforms.viewportSize.x > 0.0 && uniforms.viewportSize.y > 0.0 && uniforms.renderMode == 0) {
+    // 啟用 1:1 原生 Aspect-Fill 比例映射，防止畫面被拉長拉扁，並與 ScanGuideOverlay 座標系 100% 精準對齊
+    if (uniforms.viewportSize.x > 0.0 && uniforms.viewportSize.y > 0.0) {
         float viewAspect = uniforms.viewportSize.x / uniforms.viewportSize.y;
         float texAspect = float(colorTexture.get_width()) / float(colorTexture.get_height());
         if (viewAspect < texAspect) {
