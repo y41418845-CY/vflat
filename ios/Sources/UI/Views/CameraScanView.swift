@@ -81,27 +81,6 @@ public struct CameraScanView: View {
 
                     Spacer()
 
-                    // 中：Upgrade 皇冠升級按鈕
-                    Button(action: {}) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "crown.fill")
-                                .font(.system(size: 14))
-                                .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
-                            Text("Upgrade")
-                                .font(.system(size: 16, weight: .heavy))
-                                .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
-                        }
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 8)
-                        .background(Color.black.opacity(0.5))
-                        .overlay(
-                            Capsule().stroke(Color(red: 0.98, green: 0.82, blue: 0.35).opacity(0.6), lineWidth: 1.5)
-                        )
-                        .clipShape(Capsule())
-                    }
-
-                    Spacer()
-
                     // 右：設定齒輪按鈕
                     Button(action: {
                         viewModel.showingSettings = true
