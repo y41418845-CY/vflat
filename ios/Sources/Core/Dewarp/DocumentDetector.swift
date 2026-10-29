@@ -26,8 +26,48 @@ public struct DetectedDocument: Equatable {
         self.confidence = confidence
     }
 
-    /// 與另一個文件幾何座標進行指數平滑插值 (EMA Smoothing)
+    /// 尋找與自身歐幾里得總位移距離最小的角點順序，徹底解決相機晃動時頂點順序對調導致的框線抽搐
+    public func reorderedToMatch(_ target: DetectedDocument) -> DetectedDocument {
+        let pts = [target.topLeft, target.topRight, target.bottomRight, target.bottomLeft]
+        let currentPts = [self.topLeft, self.topRight, self.bottomRight, self.bottomLeft]
+
+        var bestShift = 0
+        var minTotalDist: CGFloat = .greatestFiniteMagnitude
+
+        for shift in 0..<4 {
+            var dist: CGFloat = 0
+            for i in 0..<4 {
+                let p1 = currentPts[i]
+                let p2 = pts[(i + shift) % 4]
+                dist += hypot(p1.x - p2.x, p1.y - p2.y)
+            }
+            if dist < minTotalDist {
+                minTotalDist = dist
+                bestShift = shift
+            }
+        }
+
+        return DetectedDocument(
+            topLeft: pts[bestShift % 4],
+            topRight: pts[(bestShift + 1) % 4],
+            bottomRight: pts[(bestShift + 2) % 4],
+            bottomLeft: pts[(bestShift + 3) % 4],
+            confidence: target.confidence
+        )
+    }
+
+    /// 與另一個文件幾何座標進行指數平滑插值 (EMA Smoothing)，並具備極限防抖死區保護
     public func smoothed(with target: DetectedDocument, alpha: CGFloat = 0.3) -> DetectedDocument {
+        // 計算四角點總位移量，若極微小 (< 0.012) 視為靜止雜訊，直接忽略更新以保證框線完全不動
+        let totalDrift = hypot(topLeft.x - target.topLeft.x, topLeft.y - target.topLeft.y)
+                       + hypot(topRight.x - target.topRight.x, topRight.y - target.topRight.y)
+                       + hypot(bottomRight.x - target.bottomRight.x, bottomRight.y - target.bottomRight.y)
+                       + hypot(bottomLeft.x - target.bottomLeft.x, bottomLeft.y - target.bottomLeft.y)
+
+        if totalDrift < 0.012 {
+            return self
+        }
+
         func lerp(_ a: CGPoint, _ b: CGPoint) -> CGPoint {
             return CGPoint(x: a.x + (b.x - a.x) * alpha, y: a.y + (b.y - a.y) * alpha)
         }
@@ -111,7 +151,8 @@ public final class DocumentDetector {
                             let newArea = approxArea(bestRect)
 
                             let alpha: CGFloat = (newArea > prevArea * 1.25) ? 0.75 : 0.35
-                            smoothed = previous.smoothed(with: rawDoc, alpha: alpha)
+                            let alignedDoc = previous.reorderedToMatch(rawDoc)
+                            smoothed = previous.smoothed(with: alignedDoc, alpha: alpha)
                         } else {
                             smoothed = rawDoc
                         }
