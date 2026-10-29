@@ -103,7 +103,9 @@ public struct CameraScanView: View {
                     Spacer()
 
                     // 右：設定齒輪按鈕
-                    Button(action: {}) {
+                    Button(action: {
+                        viewModel.showingSettings = true
+                    }) {
                         Image(systemName: "gearshape")
                             .font(.system(size: 20))
                             .foregroundColor(.white)
@@ -176,6 +178,9 @@ public struct CameraScanView: View {
         }
         .fullScreenCover(isPresented: $viewModel.showingPhotoPicker) {
             PhotoImportPickerView(viewModel: viewModel)
+        }
+        .fullScreenCover(isPresented: $viewModel.showingSettings) {
+            SettingsView(viewModel: viewModel)
         }
         .task {
             await viewModel.startScanning()

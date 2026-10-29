@@ -24,6 +24,23 @@ public final class ScannerViewModel: ObservableObject {
     // 視圖跳轉控制
     @Published public var showingDocumentDetail: Bool = false
     @Published public var showingPhotoPicker: Bool = false
+    @Published public var showingSettings: Bool = false
+
+    // REA 逆向成果配置項 (Settings Preferences)
+    @Published public var useScanGuide: Bool = true
+    @Published public var autofocusBeforeScan: Bool = true
+    @Published public var touchToScan: Bool = false
+    @Published public var disableShutterSound: Bool = false
+    @Published public var hapticFeedback: Bool = true
+    @Published public var cameraTimerSeconds: Int = 0
+    @Published public var twoPagesOrderLTR: Bool = true // true: 左到右, false: 右到左
+    @Published public var presetAutoCrop: Bool = true
+    @Published public var presetCurveCorrection: Bool = true
+    @Published public var presetColorEnhance: Bool = true
+    @Published public var presetFingerRemoval: Bool = false
+    @Published public var presetTextDarken: Bool = true
+    @Published public var autoSaveToGallery: Bool = false
+    @Published public var scanResolution: String = "4K"
 
     #if canImport(UIKit)
     @Published public var lastCapturedImage: UIImage? = nil
