@@ -231,18 +231,34 @@ public final class DocumentDetector {
             self.isProcessing = true
             self.lastProcessTime = currentTime
 
-            let request = VNDetectRectanglesRequest { [weak self] req, error in
-                defer { self?.isProcessing = false }
-                guard let self = self else { return }
+            // 雙引擎檢測管線：
+            // 主引擎 (Primary)：Apple 官方深度學習語意分割神經網絡 (VNDetectDocumentSegmentationRequest)
+            // 備援引擎 (Fallback)：高嚴格度幾何約束矩形檢測器 (VNDetectRectanglesRequest)
+            var neuralCandidate: CandidateQuad? = nil
+            var fallbackCandidates: [CandidateQuad] = []
 
-                let now = CACurrentMediaTime()
+            let docSegRequest = VNDetectDocumentSegmentationRequest { req, error in
+                if error == nil,
+                   let results = req.results as? [VNRectangleObservation],
+                   let best = results.first {
+                    let quad = CandidateQuad(
+                        topLeft: CGPoint(x: best.topLeft.x, y: 1.0 - best.topLeft.y),
+                        topRight: CGPoint(x: best.topRight.x, y: 1.0 - best.topRight.y),
+                        bottomRight: CGPoint(x: best.bottomRight.x, y: 1.0 - best.bottomRight.y),
+                        bottomLeft: CGPoint(x: best.bottomLeft.x, y: 1.0 - best.bottomLeft.y),
+                        confidence: best.confidence
+                    )
+                    if quad.isValidGeometry {
+                        neuralCandidate = quad
+                    }
+                }
+            }
 
+            let rectRequest = VNDetectRectanglesRequest { req, error in
                 if error == nil,
                    let results = req.results as? [VNRectangleObservation],
                    !results.isEmpty {
-
-                    // 1. 將 Vision 候選四邊形轉換為標準化座標系統 (0,0 左上角)
-                    var rawCandidates: [CandidateQuad] = results.map { r in
+                    fallbackCandidates = results.map { r in
                         CandidateQuad(
                             topLeft: CGPoint(x: r.topLeft.x, y: 1.0 - r.topLeft.y),
                             topRight: CGPoint(x: r.topRight.x, y: 1.0 - r.topRight.y),
@@ -250,85 +266,76 @@ public final class DocumentDetector {
                             bottomLeft: CGPoint(x: r.bottomLeft.x, y: 1.0 - r.bottomLeft.y),
                             confidence: r.confidence
                         )
-                    }
+                    }.filter { $0.isValidGeometry }
+                }
+            }
+            rectRequest.maximumObservations = 5
+            rectRequest.minimumConfidence = 0.40
+            rectRequest.minimumAspectRatio = 0.15
+            rectRequest.maximumAspectRatio = 1.0
+            rectRequest.quadratureTolerance = 18.0
+            rectRequest.minimumSize = 0.08
 
-                    // 2. 幾何合法性初步過濾 (剔除極度非對稱的歪斜陰影假梯形)
-                    var validCandidates = rawCandidates.filter { $0.isValidGeometry }
+            let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
+            do {
+                try handler.perform([docSegRequest, rectRequest])
+            } catch {
+                self.isProcessing = false
+                self.onDocumentDetected?(nil)
+                return
+            }
 
-                    // 3. 垂直相鄰區塊自動融合 (專門解決藥盒頂部商標白底與下部彩底被切分為兩段的問題)
-                    let n = validCandidates.count
-                    if n >= 2 {
-                        for i in 0..<n {
-                            for j in (i + 1)..<n {
-                                if let merged = CandidateQuad.tryMergeVertically(validCandidates[i], validCandidates[j]) {
-                                    validCandidates.append(merged)
-                                }
+            self.isProcessing = false
+            let now = CACurrentMediaTime()
+
+            // 1. 優先採用神經網絡語意分割輸出
+            var selectedQuad: CandidateQuad? = neuralCandidate
+
+            // 2. 若神經網絡未命中，採用垂直融合備援幾何輸出
+            if selectedQuad == nil && !fallbackCandidates.isEmpty {
+                let n = fallbackCandidates.count
+                var mergedList = fallbackCandidates
+                if n >= 2 {
+                    for i in 0..<n {
+                        for j in (i + 1)..<n {
+                            if let merged = CandidateQuad.tryMergeVertically(fallbackCandidates[i], fallbackCandidates[j]) {
+                                mergedList.append(merged)
                             }
                         }
                     }
+                }
+                selectedQuad = mergedList.max(by: { $0.score < $1.score })
+            }
 
-                    // 4. 智能綜合打分：以置信度、對邊平行度、中央距離加權挑選最佳目標
-                    if let bestCandidate = validCandidates.max(by: { $0.score < $1.score }),
-                       bestCandidate.confidence >= 0.35 {
+            // 3. 套用角點最小位移對齊與自適應 EMA 平滑
+            if let best = selectedQuad {
+                let rawDoc = DetectedDocument(
+                    topLeft: best.topLeft,
+                    topRight: best.topRight,
+                    bottomRight: best.bottomRight,
+                    bottomLeft: best.bottomLeft,
+                    confidence: best.confidence
+                )
 
-                        let rawDoc = DetectedDocument(
-                            topLeft: bestCandidate.topLeft,
-                            topRight: bestCandidate.topRight,
-                            bottomRight: bestCandidate.bottomRight,
-                            bottomLeft: bestCandidate.bottomLeft,
-                            confidence: bestCandidate.confidence
-                        )
-
-                        // 5. 自適應平滑插值 (EMA Smoothing)
-                        let smoothed: DetectedDocument
-                        if let previous = self.currentSmoothedDoc {
-                            let prevArea = CandidateQuad(
-                                topLeft: previous.topLeft,
-                                topRight: previous.topRight,
-                                bottomRight: previous.bottomRight,
-                                bottomLeft: previous.bottomLeft,
-                                confidence: previous.confidence
-                            ).area
-                            let newArea = bestCandidate.area
-
-                            // 若新邊框比舊邊框完整涵蓋 (面積增加 > 20%)，加速貼合；否則維持高平滑度
-                            let alpha: CGFloat = (newArea > prevArea * 1.20) ? 0.65 : 0.28
-                            let alignedDoc = previous.reorderedToMatch(rawDoc)
-                            smoothed = previous.smoothed(with: alignedDoc, alpha: alpha)
-                        } else {
-                            smoothed = rawDoc
-                        }
-
-                        self.currentSmoothedDoc = smoothed
-                        self.lastDetectedTime = now
-                        self.onDocumentDetected?(smoothed)
-                        return
-                    }
+                let smoothed: DetectedDocument
+                if let previous = self.currentSmoothedDoc {
+                    let aligned = previous.reorderedToMatch(rawDoc)
+                    smoothed = previous.smoothed(with: aligned, alpha: 0.35)
+                } else {
+                    smoothed = rawDoc
                 }
 
-                // 若當前影格短暫未檢測出，在滯後窗口內維持上一幀座標，避免高頻閃爍
+                self.currentSmoothedDoc = smoothed
+                self.lastDetectedTime = now
+                self.onDocumentDetected?(smoothed)
+            } else {
+                // 滯後窗口平滑，避免相機晃動短暫掉幀產生頻閃
                 if let previous = self.currentSmoothedDoc, now - self.lastDetectedTime < self.persistenceWindow {
                     self.onDocumentDetected?(previous)
                 } else {
                     self.currentSmoothedDoc = nil
                     self.onDocumentDetected?(nil)
                 }
-            }
-
-            // 嚴格化辨識參數：容差由 45 度收斂至 18 度，杜絕桌面斜線與陰影假梯形
-            request.maximumObservations = 10
-            request.minimumConfidence = 0.35
-            request.minimumAspectRatio = 0.15
-            request.maximumAspectRatio = 1.0
-            request.quadratureTolerance = 18.0
-            request.minimumSize = 0.08
-
-            let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
-            do {
-                try handler.perform([request])
-            } catch {
-                self.isProcessing = false
-                self.onDocumentDetected?(nil)
             }
         }
     }
