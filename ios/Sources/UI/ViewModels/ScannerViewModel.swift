@@ -58,11 +58,28 @@ public final class ScannerViewModel: ObservableObject {
         setupDetector()
     }
 
+    private var stableFrameCount: Int = 0
+    private var lastCaptureTimestamp: TimeInterval = 0
+
     private func setupDetector() {
         documentDetector.onDocumentDetected = { [weak self] doc in
             DispatchQueue.main.async {
-                self?.detectedDocument = doc
-                self?.isDocumentDetected = (doc != nil)
+                guard let self = self else { return }
+                self.detectedDocument = doc
+                self.isDocumentDetected = (doc != nil)
+
+                // vFlat 招牌自動掃描機制 (Auto-Scan)：當框選物連續穩定時自動拍攝
+                if self.isAutoCaptureEnabled, doc != nil {
+                    self.stableFrameCount += 1
+                    let now = Date().timeIntervalSince1970
+                    if self.stableFrameCount >= 8 && (now - self.lastCaptureTimestamp) > 2.0 {
+                        self.stableFrameCount = 0
+                        self.lastCaptureTimestamp = now
+                        self.triggerCapture()
+                    }
+                } else {
+                    self.stableFrameCount = 0
+                }
             }
         }
     }
@@ -92,7 +109,7 @@ public final class ScannerViewModel: ObservableObject {
         applyCurvatureMesh()
     }
 
-    /// 觸發拍照掃描 (具備原生相機快門閃爍動畫、真實影格擷取、縮圖更新與相簿儲存)
+    /// 觸發拍照掃描 (具備原生相機快門閃爍動畫、真實影格擷取、自動透視校正、縮圖更新與相簿儲存)
     public func triggerCapture() {
         #if canImport(UIKit)
         if hapticFeedback {
@@ -110,13 +127,21 @@ public final class ScannerViewModel: ObservableObject {
             }
         }
 
-        // 2. 從相機串流零延遲擷取當前最新畫面
-        if let photo = cameraManager.captureCurrentFrame() {
-            self.lastCapturedImage = photo
-            self.capturedImages.append(photo)
+        // 2. 從相機串流零延遲擷取當前最新畫面，並自動套用 vFlat 校正管線 (透視拉正 + 色彩文字增強)
+        if let rawPhoto = cameraManager.captureCurrentFrame() {
+            let rectifiedPhoto = DocumentRectifier.shared.autoProcessCapture(
+                image: rawPhoto,
+                document: self.detectedDocument,
+                autoCrop: self.presetAutoCrop,
+                textDarken: self.presetTextDarken,
+                colorEnhance: self.presetColorEnhance
+            )
+
+            self.lastCapturedImage = rectifiedPhoto
+            self.capturedImages.append(rectifiedPhoto)
 
             if autoSaveToGallery {
-                UIImageWriteToSavedPhotosAlbum(photo, nil, nil, nil)
+                UIImageWriteToSavedPhotosAlbum(rectifiedPhoto, nil, nil, nil)
             }
         }
         #endif
