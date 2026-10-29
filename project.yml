@@ -1,0 +1,29 @@
+name: vFlat
+options:
+  bundleIdPrefix: com.voyagerx.ios
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "16.0"
+
+targets:
+  vFlat:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: ios/Sources/Core
+      - path: ios/Sources/UI
+      - path: ios/Sources/vFlatApp
+    info:
+      path: ios/Info.plist
+      properties:
+        CFBundleDisplayName: "vFlat Scan"
+    settings:
+      base:
+        PRODUCT_NAME: "vFlat"
+        PRODUCT_BUNDLE_IDENTIFIER: "com.voyagerx.ios.vflat"
+        SWIFT_VERSION: "5.9"
+        ENABLE_BITCODE: NO
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""

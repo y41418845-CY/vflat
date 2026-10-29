@@ -1,12 +1,13 @@
 # vFlat 逆向工程與架構分析專案 (REA)
 
-- **版本**：v0.3.0
+- **版本**：v0.4.0
 - **目標應用**：vFlat Scan - PDF Scanner (`com.voyagerx.scanner`)
 - **分析樣本**：`vFlat Scan.xapk` (v1.16.8.260930.6c4b190386)
 - **衍生原生 iOS 實作**：`ios/` (vFlat-iOS iPhone 專案)
+- **遠端代碼庫**：`https://github.com/y41418845-CY/vflat`
 
 ## 專案說明
-本專案存放針對 vFlat Android 版本的逆向工程（REA）分析記錄、原生 C++ 函式庫分析、AI 模型清單與 25x25 自由曲面展平演算法逆向成果，並包含使用 Swift + Metal + AVFoundation 重新構建之全新 iPhone 專案 (`ios/`)。
+本專案存放針對 vFlat Android 版本的逆向工程（REA）分析記錄、原生 C++ 函式庫分析、AI 模型清單與 25x25 自由曲面展平演算法逆向成果，並包含使用 Swift + Metal + AVFoundation 重新構建之全新 iPhone 專案 (`ios/`) 與 GitHub Actions 雲端自動建置 CI/CD 管線。
 
 ## 分析成果重點
 1. **核心函式庫**：
@@ -22,3 +23,6 @@
    - `Core/Dewarp`：Swift 25x25 幾何弧長積分引擎。
    - `Core/Metal`：Metal MSL 著色器即時紋理拉平渲染器。
    - `UI`：現代 SwiftUI 掃描視圖、中縫引導線與底部控制列。
+4. **CI/CD 自動編譯管線 (`.github/workflows/build_ios.yml`)**：
+   - 每次 Push 自動在 GitHub 雲端 macOS-14 上透過 Xcode 16 編譯並打包出未簽名之 `vFlat.ipa`。
+   - 支援在 Windows 上搭配 Sideloadly 免費安裝至實體 iPhone。
