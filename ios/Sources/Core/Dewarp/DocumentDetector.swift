@@ -2,6 +2,7 @@ import Foundation
 import CoreVideo
 import Vision
 import CoreGraphics
+import QuartzCore
 
 /// 描述偵測到的文件四邊角點 (Normalized 0.0 .. 1.0, 螢幕座標系 Top-Left 原點)
 public struct DetectedDocument: Equatable {
