@@ -9,38 +9,38 @@ public struct ScanGuideOverlay: View {
         self.viewModel = viewModel
     }
 
+    // 將相機標準化座標轉換為全螢幕 Aspect-Fill 投影，保證邊界框與實體物品邊緣 100% 貼合
+    private func aspectFillPoint(_ pt: CGPoint, viewWidth: CGFloat, viewHeight: CGFloat, camAspect: CGFloat = 9.0 / 16.0) -> CGPoint {
+        let viewAspect = viewWidth / viewHeight
+        if viewAspect < camAspect {
+            // 螢幕較細長，以高度為基準填滿，左右側裁切
+            let renderedWidth = viewHeight * camAspect
+            let offsetX = (renderedWidth - viewWidth) / 2.0
+            let screenX = pt.x * renderedWidth - offsetX
+            let screenY = pt.y * viewHeight
+            return CGPoint(x: screenX, y: screenY)
+        } else {
+            // 螢幕較寬，以寬度為基準填滿，上下端裁切
+            let renderedHeight = viewWidth / camAspect
+            let offsetY = (renderedHeight - viewHeight) / 2.0
+            let screenX = pt.x * viewWidth
+            let screenY = pt.y * renderedHeight - offsetY
+            return CGPoint(x: screenX, y: screenY)
+        }
+    }
+
     public var body: some View {
         GeometryReader { proxy in
             let width = proxy.size.width
             let height = proxy.size.height
 
-            // 將相機標準化座標轉換為全螢幕 Aspect-Fill 投影，保證邊界框與實體物品邊緣 100% 貼合
-            func aspectFillPoint(_ pt: CGPoint, camAspect: CGFloat = 9.0 / 16.0) -> CGPoint {
-                let viewAspect = width / height
-                if viewAspect < camAspect {
-                    // 螢幕較細長，以高度為基準填滿，左右側裁切
-                    let renderedWidth = height * camAspect
-                    let offsetX = (renderedWidth - width) / 2.0
-                    let screenX = pt.x * renderedWidth - offsetX
-                    let screenY = pt.y * height
-                    return CGPoint(x: screenX, y: screenY)
-                } else {
-                    // 螢幕較寬，以寬度為基準填滿，上下端裁切
-                    let renderedHeight = width / camAspect
-                    let offsetY = (renderedHeight - height) / 2.0
-                    let screenX = pt.x * width
-                    let screenY = pt.y * renderedHeight - offsetY
-                    return CGPoint(x: screenX, y: screenY)
-                }
-            }
-
             ZStack {
                 // 1. 自動偵測之文件邊界框線 (精確貼合整體外輪廓)
                 if let doc = viewModel.detectedDocument {
-                    let p1 = aspectFillPoint(doc.topLeft)
-                    let p2 = aspectFillPoint(doc.topRight)
-                    let p3 = aspectFillPoint(doc.bottomRight)
-                    let p4 = aspectFillPoint(doc.bottomLeft)
+                    let p1 = aspectFillPoint(doc.topLeft, viewWidth: width, viewHeight: height)
+                    let p2 = aspectFillPoint(doc.topRight, viewWidth: width, viewHeight: height)
+                    let p3 = aspectFillPoint(doc.bottomRight, viewWidth: width, viewHeight: height)
+                    let p4 = aspectFillPoint(doc.bottomLeft, viewWidth: width, viewHeight: height)
 
                     Path { path in
                         path.move(to: p1)
