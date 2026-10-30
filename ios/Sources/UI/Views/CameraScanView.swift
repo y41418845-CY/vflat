@@ -37,292 +37,106 @@ public struct MetalDewarpViewRepresentable: UIViewRepresentable {
 #endif
 
 /// 主掃描相機畫面 (SwiftUI)
-/// 完整對齊原版 iPhone vFlat UI (圖一、圖二) 並整合 OpenScan 5 大核心功能
+/// 1:1 完美對齊原廠圖一：
+/// 1. 上半部 4:3 真實比例相機取景窗 (浮動資料庫、設定、快捷項與 1頁/2頁/自動滑塊)
+/// 2. 下半部純黑控制區 (無相機預覽畫面，含資料夾膠囊、最新縮圖卡片、原廠雙環快門鈕、相簿圖示)
 public struct CameraScanView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = ScannerViewModel()
+    @State private var showingFolderSwitchSheet: Bool = false
 
     public init() {}
 
+    private var isShutterDisabled: Bool {
+        viewModel.isProcessingCapture || viewModel.captureCountdown != nil
+    }
+
     public var body: some View {
         ZStack {
-            // 底層：黑底背板
+            // 底層純黑背板
             Color.black.ignoresSafeArea()
 
-            // 1. Metal 即時相機渲染視圖 (1:1 原生平坦真實比例)
-            #if canImport(UIKit)
-            MetalDewarpViewRepresentable(viewModel: viewModel)
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    // 「觸控螢幕拍照」設定：整片預覽區即快門
-                    if viewModel.touchToScan {
-                        viewModel.triggerCapture()
-                    }
-                }
-            #else
-            Text("Metal 渲染器需在 iOS 實體設備或模擬器環境下運作")
-                .foregroundColor(.white)
-            #endif
+            VStack(spacing: 0) {
+                // 1. 上半部：4:3 比例標準相機取景窗 (嚴格對齊圖一)
+                GeometryReader { geo in
+                    let w = geo.size.width
+                    let h = w * 4.0 / 3.0 // 4:3 比例 (高:寬 = 4:3)
 
-            // 2. 輔助導引層 (自動文件邊界框選、中央「尋找文件」標籤、十字姿態儀)
-            ScanGuideOverlay(viewModel: viewModel)
-                .ignoresSafeArea()
-
-            // 3. 自動穩定捕捉環狀進度指示器 (對齊 OpenScan 視覺提示)
-            if viewModel.isAutoCaptureEnabled && viewModel.autoCaptureProgress > 0.05 {
-                VStack {
-                    Spacer()
-                    ZStack {
-                        Circle()
-                            .stroke(Color.white.opacity(0.3), lineWidth: 4)
-                            .frame(width: 54, height: 54)
-
-                        Circle()
-                            .trim(from: 0.0, to: CGFloat(viewModel.autoCaptureProgress))
-                            .stroke(Color(red: 0.22, green: 0.85, blue: 0.45), style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                            .rotationEffect(.degrees(-90))
-                            .frame(width: 54, height: 54)
-
-                        Image(systemName: "camera.viewfinder")
-                            .font(.system(size: 22, weight: .bold))
-                            .foregroundColor(.white)
-                    }
-                    .padding(.bottom, 200)
-                }
-                .transition(.opacity)
-                .animation(.easeInOut(duration: 0.2), value: viewModel.autoCaptureProgress)
-            }
-
-            // 4. 定時拍照倒數
-            if let countdown = viewModel.captureCountdown {
-                Text("\(countdown)")
-                    .font(.system(size: 120, weight: .thin, design: .rounded))
-                    .foregroundColor(.white)
-                    .shadow(color: .black.opacity(0.5), radius: 12)
-                    .transition(.scale.combined(with: .opacity))
-                    .animation(.easeInOut(duration: 0.2), value: countdown)
-                    .allowsHitTesting(false)
-            }
-
-            // 5. QR Code / 條碼懸浮智慧膠囊通知 (對齊 OSS-DocumentScanner，點擊複製或開啟網址)
-            if let barcode = viewModel.detectedBarcode {
-                VStack {
-                    Button(action: {
+                    ZStack(alignment: .bottom) {
+                        // (1) Metal 相機預覽畫面 (限制在 4:3 內，不延伸到下半部)
                         #if canImport(UIKit)
-                        UIPasteboard.general.string = barcode.payloadString
-                        let impact = UIImpactFeedbackGenerator(style: .medium)
-                        impact.impactOccurred()
-                        if barcode.isURL, let url = URL(string: barcode.payloadString) {
-                            UIApplication.shared.open(url)
-                        }
-                        #endif
-                    }) {
-                        HStack(spacing: 8) {
-                            Image(systemName: barcode.iconName)
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(barcode.isURL ? "開啟連結 (點擊開啟/已複製)" : "條碼內容 (點擊已複製)")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(.white.opacity(0.8))
-
-                                Text(barcode.payloadString)
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundColor(.white)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
+                        MetalDewarpViewRepresentable(viewModel: viewModel)
+                            .frame(width: w, height: h)
+                            .clipped()
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if viewModel.touchToScan {
+                                    viewModel.triggerCapture()
+                                }
                             }
+                        #else
+                        Color.black.frame(width: w, height: h)
+                        #endif
 
+                        // (2) 綠色文件邊界引導框
+                        ScanGuideOverlay(viewModel: viewModel)
+                            .frame(width: w, height: h)
+                            .allowsHitTesting(false)
+
+                        // (3) 取景窗頂部浮動工具列
+                        VStack(spacing: 10) {
+                            topNavigationBar
+                            topQuickControls
                             Spacer()
 
-                            Image(systemName: barcode.isURL ? "arrow.up.right.square" : "doc.on.doc")
-                                .font(.system(size: 14))
-                                .foregroundColor(.white.opacity(0.7))
+                            // (4) 取景窗底緣浮動切換列 (1頁 / 2頁 / 自動)
+                            pageModeSelector
+                                .padding(.bottom, 12)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(Color.black.opacity(0.78))
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color(red: 0.98, green: 0.82, blue: 0.35).opacity(0.6), lineWidth: 1.2)
-                        )
-                        .shadow(color: .black.opacity(0.4), radius: 8, y: 4)
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.top, 100)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .animation(.spring(response: 0.35, dampingFraction: 0.75), value: barcode.payloadString)
+                        .frame(width: w, height: h)
 
-                    Spacer()
-                }
-            }
-
-            // 6. 頂部工具列與底部控制層
-            VStack(spacing: 0) {
-                // 頂部主導航列 (返回書庫、匯出 PDF、設定)
-                HStack(spacing: 12) {
-                    Button(action: {
-                        dismiss()
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 16, weight: .bold))
-                            Text("書庫")
-                                .font(.system(size: 15, weight: .semibold))
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(Color.black.opacity(0.45))
-                        .clipShape(Capsule())
-                    }
-
-                    Spacer()
-
-                    Button(action: {
-                        viewModel.showingPDFExportSheet = true
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.system(size: 13, weight: .semibold))
-                            Text("匯出 PDF")
-                                .font(.system(size: 14, weight: .bold))
-                            if viewModel.pageCount > 0 {
-                                Text("\(viewModel.pageCount)")
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundColor(Color(red: 0.08, green: 0.78, blue: 0.44))
-                            }
-                        }
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(Color.black.opacity(0.45))
-                        .clipShape(Capsule())
-                    }
-                    .disabled(viewModel.pageCount == 0)
-                    .opacity(viewModel.pageCount == 0 ? 0.5 : 1)
-
-                    Button(action: {
-                        viewModel.showingSettings = true
-                    }) {
-                        Image(systemName: "gearshape")
-                            .font(.system(size: 18))
-                            .foregroundColor(.white)
-                            .padding(8)
-                            .background(Color.black.opacity(0.45))
-                            .clipShape(Circle())
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 44) // 避開安全區域與動態島
-
-                // 次頂部功能列 (閃光燈、定時器、Auto Scan 開關、濾鏡模式)
-                HStack {
-                    Button(action: {
-                        viewModel.toggleTorch()
-                    }) {
-                        Image(systemName: viewModel.isFlashlightOn ? "bolt.fill" : "bolt")
-                            .font(.system(size: 18))
-                            .foregroundColor(viewModel.isFlashlightOn ? .yellow : .white)
-                            .opacity(viewModel.cameraManager.isTorchAvailable || viewModel.isFlashlightOn ? 1.0 : 0.35)
-                    }
-                    .disabled(!viewModel.cameraManager.isTorchAvailable && !viewModel.isFlashlightOn)
-
-                    Spacer()
-
-                    Button(action: {
-                        viewModel.cycleCaptureTimer()
-                    }) {
-                        ZStack {
-                            Image(systemName: "timer")
-                                .font(.system(size: 18))
+                        // (5) 定時拍照倒數浮層
+                        if let countdown = viewModel.captureCountdown {
+                            Text("\(countdown)")
+                                .font(.system(size: 110, weight: .thin, design: .rounded))
                                 .foregroundColor(.white)
-                            if viewModel.cameraTimerSeconds > 0 {
-                                Text("\(viewModel.cameraTimerSeconds)s")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
-                                    .offset(y: 16)
+                                .shadow(color: .black.opacity(0.6), radius: 12)
+                                .transition(.scale.combined(with: .opacity))
+                                .animation(.easeInOut(duration: 0.2), value: countdown)
+                                .allowsHitTesting(false)
+                                .padding(.bottom, 60)
+                        }
+
+                        // (6) 自動掃描進度環
+                        if viewModel.isAutoCaptureEnabled && viewModel.autoCaptureProgress > 0.05 {
+                            ZStack {
+                                Circle()
+                                    .stroke(Color.white.opacity(0.3), lineWidth: 4)
+                                    .frame(width: 50, height: 50)
+                                Circle()
+                                    .trim(from: 0.0, to: CGFloat(viewModel.autoCaptureProgress))
+                                    .stroke(Color(red: 0.22, green: 0.85, blue: 0.45), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                                    .rotationEffect(.degrees(-90))
+                                    .frame(width: 50, height: 50)
+                                Image(systemName: "camera.viewfinder")
+                                    .font(.system(size: 20, weight: .bold))
+                                    .foregroundColor(.white)
                             }
+                            .padding(.bottom, 70)
+                            .transition(.opacity)
                         }
-                        .frame(width: 28, height: 28)
                     }
-
-                    Spacer()
-
-                    Button(action: {
-                        viewModel.isAutoCaptureEnabled.toggle()
-                    }) {
-                        HStack(spacing: 4) {
-                            Image(systemName: viewModel.isAutoCaptureEnabled ? "checkmark.circle.fill" : "camera.metering.matrix")
-                                .font(.system(size: 12))
-                                .foregroundColor(viewModel.isAutoCaptureEnabled ? Color(red: 0.22, green: 0.85, blue: 0.45) : .white)
-                            Text("AUTO\nSCAN")
-                                .font(.system(size: 9, weight: .bold))
-                                .lineLimit(2)
-                                .foregroundColor(.white)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(viewModel.isAutoCaptureEnabled ? Color.white.opacity(0.25) : Color.clear)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                    }
-
-                    Spacer()
-
-                    // 濾鏡快速切換（點擊循環 6 種模式，實際套用於下一次快門與目前最後一頁）
-                    Button(action: {
-                        viewModel.cycleFilterMode()
-                    }) {
-                        VStack(spacing: 1) {
-                            Image(systemName: viewModel.selectedFilterMode.iconName)
-                                .font(.system(size: 18))
-                                .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
-                            Text(viewModel.selectedFilterMode.rawValue)
-                                .font(.system(size: 8, weight: .semibold))
-                                .foregroundColor(.white.opacity(0.85))
-                        }
-                        .frame(width: 44)
-                    }
+                    .frame(width: w, height: h)
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 14)
+                .aspectRatio(3.0 / 4.0, contentMode: .fit)
 
-                Spacer()
-
-                // 底部控制列
-                ScanControlBar(viewModel: viewModel, onDone: {
-                    dismiss()
-                })
+                // 2. 下半部：純黑控制區 (原廠圖一 1:1，完全無相機畫面！)
+                bottomPureBlackArea
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.black)
             }
 
-            // 7. 錯誤提示橫幅
-            if let message = viewModel.errorMessage {
-                VStack {
-                    Spacer()
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 14))
-                        Text(message)
-                            .font(.system(size: 13, weight: .medium))
-                            .multilineTextAlignment(.leading)
-                    }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(Color(red: 0.75, green: 0.2, blue: 0.2).opacity(0.92))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 190)
-                    .onTapGesture { viewModel.clearError() }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-                .animation(.easeInOut(duration: 0.2), value: message)
-            }
-
-            // 8. 原生相機快門閃爍白光視覺回饋
+            // 快門閃爍白光視覺回饋
             if viewModel.isShutterFlashing {
                 Color.white
                     .ignoresSafeArea()
@@ -338,10 +152,8 @@ public struct CameraScanView: View {
         .fullScreenCover(isPresented: $viewModel.showingSettings) {
             SettingsView(viewModel: viewModel)
         }
-        .sheet(isPresented: $viewModel.showingPDFExportSheet) {
-            #if canImport(UIKit)
-            PDFExportSheet(viewModel: viewModel)
-            #endif
+        .sheet(isPresented: $showingFolderSwitchSheet) {
+            MoveFolderSheet(viewModel: viewModel, pageIds: [])
         }
         .task {
             await viewModel.startScanning()
@@ -375,6 +187,253 @@ public struct CameraScanView: View {
                     await viewModel.startScanning()
                 }
             }
+        }
+    }
+
+    // MARK: - 頂部導航列 (1:1 對齊圖一：📁 資料庫 | ⚙️)
+
+    private var topNavigationBar: some View {
+        HStack {
+            // 資料庫返回膠囊
+            Button(action: { dismiss() }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("資料庫")
+                        .font(.system(size: 16, weight: .semibold))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(Color.black.opacity(0.45))
+                .clipShape(Capsule())
+            }
+
+            Spacer()
+
+            // 設定齒輪按鈕
+            Button(action: { viewModel.showingSettings = true }) {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 18))
+                    .foregroundColor(.white)
+                    .padding(8)
+                    .background(Color.black.opacity(0.45))
+                    .clipShape(Circle())
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 46) // 避開動態島/安全區域
+    }
+
+    // MARK: - 頂部第二行快捷按鈕列 (閃光燈、定時器、AUTO SCAN、濾鏡)
+
+    private var topQuickControls: some View {
+        HStack {
+            // 1. 閃光燈
+            Button(action: { viewModel.toggleTorch() }) {
+                Image(systemName: viewModel.isFlashlightOn ? "bolt.fill" : "bolt.slash")
+                    .font(.system(size: 18))
+                    .foregroundColor(viewModel.isFlashlightOn ? .yellow : .white)
+                    .frame(width: 36, height: 36)
+                    .background(Color.black.opacity(0.3))
+                    .clipShape(Circle())
+            }
+
+            Spacer()
+
+            // 2. 定時器
+            Button(action: { viewModel.cycleCaptureTimer() }) {
+                ZStack {
+                    Image(systemName: "timer")
+                        .font(.system(size: 18))
+                        .foregroundColor(.white)
+                    if viewModel.cameraTimerSeconds > 0 {
+                        Text("\(viewModel.cameraTimerSeconds)s")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
+                            .offset(y: 13)
+                    }
+                }
+                .frame(width: 36, height: 36)
+                .background(Color.black.opacity(0.3))
+                .clipShape(Circle())
+            }
+
+            Spacer()
+
+            // 3. AUTO SCAN
+            Button(action: { viewModel.isAutoCaptureEnabled.toggle() }) {
+                VStack(spacing: 2) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(viewModel.isAutoCaptureEnabled ? Color(red: 0.98, green: 0.82, blue: 0.35) : .white)
+                    Text("AUTO\nSCAN")
+                        .font(.system(size: 8, weight: .bold))
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(-2)
+                        .foregroundColor(viewModel.isAutoCaptureEnabled ? Color(red: 0.98, green: 0.82, blue: 0.35) : .white)
+                }
+                .frame(width: 42, height: 36)
+                .background(viewModel.isAutoCaptureEnabled ? Color.white.opacity(0.25) : Color.black.opacity(0.3))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+
+            Spacer()
+
+            // 4. 色彩濾鏡
+            Button(action: { viewModel.cycleFilterMode() }) {
+                Image(systemName: "sun.max")
+                    .font(.system(size: 18))
+                    .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
+                    .frame(width: 36, height: 36)
+                    .background(Color.black.opacity(0.3))
+                    .clipShape(Circle())
+            }
+        }
+        .padding(.horizontal, 28)
+    }
+
+    // MARK: - 取景窗底緣浮動模式膠囊 (1頁 / 2頁 / 自動)
+
+    private var pageModeSelector: some View {
+        HStack(spacing: 16) {
+            // 1 頁 (選中狀態)
+            Button(action: {
+                viewModel.scanMode = .single
+            }) {
+                Text("1 頁")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundColor(viewModel.scanMode == .single ? Color(red: 0.98, green: 0.85, blue: 0.42) : .white.opacity(0.6))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(viewModel.scanMode == .single ? Color.black.opacity(0.65) : Color.clear)
+                    .clipShape(Capsule())
+            }
+
+            // 2 頁
+            Button(action: {
+                viewModel.scanMode = .doublePage
+            }) {
+                Text("2 頁")
+                    .font(.system(size: 17, weight: viewModel.scanMode == .doublePage ? .bold : .medium))
+                    .foregroundColor(viewModel.scanMode == .doublePage ? Color(red: 0.98, green: 0.85, blue: 0.42) : .white.opacity(0.6))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(viewModel.scanMode == .doublePage ? Color.black.opacity(0.65) : Color.clear)
+                    .clipShape(Capsule())
+            }
+
+            // 自動
+            Button(action: {
+                viewModel.isAutoCaptureEnabled.toggle()
+            }) {
+                Text("自動")
+                    .font(.system(size: 17, weight: viewModel.isAutoCaptureEnabled ? .bold : .medium))
+                    .foregroundColor(viewModel.isAutoCaptureEnabled ? Color(red: 0.98, green: 0.85, blue: 0.42) : .white.opacity(0.6))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 6)
+                    .background(viewModel.isAutoCaptureEnabled ? Color.black.opacity(0.65) : Color.clear)
+                    .clipShape(Capsule())
+            }
+        }
+        .padding(4)
+        .background(Color.black.opacity(0.35))
+        .clipShape(Capsule())
+    }
+
+    // MARK: - 下半部純黑控制區 (1:1 對齊圖一：資料夾膠囊 + 縮圖 + 雙環快門 + 相簿)
+
+    private var bottomPureBlackArea: some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            // 1. 當前資料夾選擇膠囊 (📁 涓建築 ⌵)
+            Button(action: {
+                showingFolderSwitchSheet = true
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 15))
+                    Text(viewModel.pageStore.currentFolderName)
+                        .font(.system(size: 17, weight: .medium))
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .bold))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(Color(white: 0.16))
+                .clipShape(Capsule())
+            }
+            .padding(.bottom, 24)
+
+            // 2. 快門控制列 (左：最新縮圖、中：白色雙環快門、右：相簿)
+            HStack(alignment: .center) {
+                // 左側：最新掃描頁縮圖卡片
+                Button(action: {
+                    viewModel.showingDocumentDetail = true
+                }) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(Color(white: 0.2))
+                            .frame(width: 48, height: 64)
+
+                        if let thumb = viewModel.lastThumbnail {
+                            Image(uiImage: thumb)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 48, height: 64)
+                                .clipped()
+                                .cornerRadius(6)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(Color.white.opacity(0.8), lineWidth: 1.5)
+                                )
+                        } else {
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color.white.opacity(0.3), lineWidth: 1)
+                                .frame(width: 48, height: 64)
+                        }
+                    }
+                }
+                .frame(width: 64)
+
+                Spacer()
+
+                // 中央：原廠經典白色快門雙環大圓鈕
+                Button(action: {
+                    viewModel.triggerCapture()
+                }) {
+                    ZStack {
+                        // 外圈白環
+                        Circle()
+                            .stroke(Color.white, lineWidth: 3.5)
+                            .frame(width: 76, height: 76)
+
+                        // 內圈純白實心大圓
+                        Circle()
+                            .fill(Color.white)
+                            .frame(width: 60, height: 60)
+                    }
+                }
+                .disabled(isShutterDisabled)
+                .opacity(isShutterDisabled ? 0.6 : 1.0)
+
+                Spacer()
+
+                // 右側：相簿圖示按鈕
+                Button(action: {
+                    viewModel.showingPhotoPicker = true
+                }) {
+                    Image(systemName: "photo.on.rectangle")
+                        .font(.system(size: 26))
+                        .foregroundColor(.white)
+                        .frame(width: 48, height: 48)
+                }
+                .frame(width: 64)
+            }
+            .padding(.horizontal, 36)
+            .padding(.bottom, 40)
         }
     }
 }

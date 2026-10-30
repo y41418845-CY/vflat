@@ -89,6 +89,7 @@ public struct PageSwipeDetailView: View {
 
     private enum ActiveModal: Identifiable {
         case aiEnhancer
+        case aiEraser(UIImage)
         case pdfExport
         case ocrResult(String)
         case jpgShare(URL)
@@ -98,6 +99,8 @@ public struct PageSwipeDetailView: View {
             switch self {
             case .aiEnhancer:
                 return "aiEnhancer"
+            case .aiEraser:
+                return "aiEraser"
             case .pdfExport:
                 return "pdfExport"
             case .ocrResult(let text):
@@ -197,7 +200,33 @@ public struct PageSwipeDetailView: View {
             switch modal {
             case .aiEnhancer:
                 AIEnhancerSheet { type in
-                    runAI(type)
+                    if type == .eraser, let page = currentPage, let img = pageStore.image(for: page) {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            activeModal = .aiEraser(img)
+                        }
+                    } else {
+                        runAI(type)
+                    }
+                }
+            case .aiEraser(let img):
+                if let page = currentPage {
+                    AIEraserView(
+                        sourceImage: img,
+                        onApply: { cleaned in
+                            activeModal = nil
+                            Task {
+                                await pageStore.updateProcessed(id: page.id, image: cleaned, filterMode: page.filterMode)
+                                await MainActor.run {
+                                    self.imageRevision = UUID()
+                                    self.showToast("塗鴉橡皮擦完成")
+                                }
+                            }
+                        },
+                        onCancel: {
+                            activeModal = nil
+                            showToast("塗鴉橡皮擦已取消")
+                        }
+                    )
                 }
             case .pdfExport:
                 PDFExportSheet(viewModel: viewModel)

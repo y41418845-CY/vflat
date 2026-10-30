@@ -64,13 +64,13 @@ public struct AIEnhancerSheet: View {
                     dismiss()
                 }
 
-                // 4. AI 橡皮擦 (去除陰影與手指)
+                // 4. AI 橡皮擦 (塗鴉與手指抹除)
                 enhancerCard(
                     title: "AI 橡皮擦",
                     crown: false,
                     illustration: AnyView(eraserIllustration)
                 ) {
-                    onSelect(.shadow)
+                    onSelect(.eraser)
                     dismiss()
                 }
             }

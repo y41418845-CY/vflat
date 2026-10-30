@@ -43,7 +43,10 @@ public struct MoveFolderSheet: View {
                     ForEach(viewModel.pageStore.folders) { folder in
                         let isCurrent = (folder.id == viewModel.pageStore.currentFolderId)
                         Button(action: {
-                            viewModel.pageStore.move(pageIds: pageIds, to: folder.id)
+                            if !pageIds.isEmpty {
+                                viewModel.pageStore.move(pageIds: pageIds, to: folder.id)
+                            }
+                            viewModel.pageStore.currentFolderId = folder.id
                             dismiss()
                         }) {
                             HStack(spacing: 12) {

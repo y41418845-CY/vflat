@@ -820,7 +820,8 @@ public struct ScannerError: LocalizedError, CustomStringConvertible {
     public enum AIEnhancerType: String, CaseIterable, Identifiable {
         case ultra = "極致全開"
         case dewarp = "拉直"
-        case shadow = "AI 橡皮擦"
+        case eraser = "AI 橡皮擦"
+        case shadow = "消除陰影"
         case deblur = "模糊校正"
         case finger = "手指抹除"
         case handwriting = "擦除筆記"
@@ -835,6 +836,8 @@ public struct ScannerError: LocalizedError, CustomStringConvertible {
             await applyUltraScan(to: target)
         case .dewarp:
             await applyDewarp(to: target)
+        case .eraser:
+            await applyFingerRemoval(to: target)
         case .shadow:
             await applyShadowRemoval(to: target)
         case .deblur:
