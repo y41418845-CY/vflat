@@ -1,7 +1,7 @@
 # AI Agent 專案交接與工程維護手冊 (Agent Handover Document)
 
 > **專案名稱**：vFlat 逆向工程與 iOS 原生重構專案 (`vFlat-iOS`)  
-> **專案版本**：`v1.5.8`（Build `158`）  
+> **專案版本**：`v1.5.9`（Build `159`）  
 > **最後更新時間**：2026-10-30  
 > **遠端儲存庫**：`https://github.com/y41418845-CY/vflat`（預設分支：`master`）  
 > **本地工作目錄**：`g:\我的雲端硬碟\工具程式\vflat\`  
@@ -127,3 +127,7 @@ ios/
    - Antigravity 自訂技能目錄必須使用 Windows 實體資料夾，嚴禁使用 Junction 聯結點或符號連結。
 4. **Git Commit 繁體中文約定**：
    - Commit 訊息必須使用繁體中文（台灣口語）撰寫，維持儲存庫紀錄清晰一致。
+5. **SwiftUI 多 Sheet 衝突與 ActionSheet Dismiss 競態 (v1.5.9 重大修復)**：
+   - 在 SwiftUI 同一個 View 樹上**嚴禁宣告多個 `.sheet(isPresented:)`**，否則後者會覆蓋前者，導致彈窗無反應。必須統一使用 `enum ActiveDetailModal: Identifiable` 配合單一 `.sheet(item: $activeModal)`。
+   - 在 ActionSheet / ConfirmationDialog 的按鈕回調中若要拉起新的 Sheet 或 UIActivityViewController，**必須延遲約 0.35 秒**（`DispatchQueue.main.asyncAfter(deadline: .now() + 0.35)`），避免與 ActionSheet 的 dismiss 動畫發生 presentation 衝突遭 UIKit 靜默丟棄。
+   - 儲存相片必須採用 `PHPhotoLibrary` 進行 `.addOnly` 權限確認與 `performChanges` 寫入，不可使用過時且無錯誤回傳的 `UIImageWriteToSavedPhotosAlbum`。

@@ -10,15 +10,29 @@ public struct DocumentDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var viewModel: ScannerViewModel
 
+    private enum ActiveDetailModal: Identifiable {
+        case pdfExport
+        case ocrResult
+        case jpgShare(URL)
+
+        var id: String {
+            switch self {
+            case .pdfExport:
+                return "pdfExport"
+            case .ocrResult:
+                return "ocrResult"
+            case .jpgShare(let url):
+                return "jpgShare_\(url.absoluteString)"
+            }
+        }
+    }
+
     @State private var showingFilterSelector: Bool = false
     @State private var showingAISelector: Bool = false
     @State private var showingLoupeCropView: Bool = false
-    @State private var showingPDFSheet: Bool = false
     @State private var showingExportActionSheet: Bool = false
-    @State private var showingJPGShareSheet: Bool = false
-    @State private var jpgShareURL: URL? = nil
+    @State private var activeModal: ActiveDetailModal? = nil
     @State private var toastMessage: String? = nil
-    @State private var showingOCRResult: Bool = false
     @State private var activeDocument: DetectedDocument = DetectedDocument(
         topLeft: CGPoint(x: 0.0, y: 0.0),
         topRight: CGPoint(x: 1.0, y: 0.0),
@@ -113,7 +127,7 @@ public struct DocumentDetailView: View {
                                 Task {
                                     await viewModel.recognizeLastPageText()
                                     if viewModel.lastOCRText != nil {
-                                        showingOCRResult = true
+                                        activeModal = .ocrResult
                                     }
                                 }
                             }) {
@@ -291,7 +305,7 @@ public struct DocumentDetailView: View {
                         Task {
                             await viewModel.recognizeLastPageText()
                             if viewModel.lastOCRText != nil {
-                                showingOCRResult = true
+                                activeModal = .ocrResult
                             }
                         }
                     }
@@ -323,55 +337,68 @@ public struct DocumentDetailView: View {
                 }
             }
         }
-        .sheet(isPresented: $showingPDFSheet) {
-            PDFExportSheet(
-                pages: viewModel.pages,
-                store: viewModel.pageStore,
-                defaultPrefix: viewModel.currentFolder
-            )
-        }
-        .sheet(isPresented: $showingOCRResult) {
-            OCRResultSheet(
-                text: viewModel.lastOCRText ?? "",
-                onCopy: {
-                    UIPasteboard.general.string = viewModel.lastOCRText
-                }
-            )
-        }
         .actionSheet(isPresented: $showingExportActionSheet) {
             ActionSheet(
                 title: Text("匯出與分享"),
                 message: Text("請選擇檔案格式或儲存方式"),
                 buttons: [
                     .default(Text("📄 匯出 PDF 文件")) {
-                        showingPDFSheet = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            activeModal = .pdfExport
+                        }
                     },
                     .default(Text("🖼️ 儲存成 .jpg 檔 (儲存至相簿)")) {
                         Task {
-                            await viewModel.saveCurrentPageAsJPEG(saveToPhotos: true)
-                            showToast("✅ 已成功將頁面儲存為 .jpg 至相簿！")
+                            let result = await viewModel.saveCurrentPageToPhotos()
+                            switch result {
+                            case .success:
+                                showToast("✅ 已成功將頁面儲存為 .jpg 至相簿！")
+                            case .failure(let err):
+                                showToast("❌ \(err)")
+                            }
                         }
                     },
                     .default(Text("📤 分享當前頁 .jpg 檔案")) {
                         Task {
-                            if let url = await viewModel.saveCurrentPageAsJPEG(saveToPhotos: false) {
-                                jpgShareURL = url
-                                showingJPGShareSheet = true
+                            if let url = await viewModel.exportCurrentPageAsJPEGFile() {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                    activeModal = .jpgShare(url)
+                                }
+                            } else {
+                                showToast("❌ 生成分享 JPG 檔案失敗")
                             }
                         }
                     },
                     .default(Text("📚 批次儲存全部 \(viewModel.pageCount) 頁為 .jpg 到相簿")) {
                         Task {
-                            let count = await viewModel.saveAllPagesToPhotos()
-                            showToast("✅ 已批次將 \(count) 頁儲存為 .jpg 至相簿！")
+                            let (success, total, err) = await viewModel.saveAllPagesToPhotos()
+                            if let err = err {
+                                showToast("❌ \(err)")
+                            } else {
+                                showToast("✅ 已批次將 \(success)/\(total) 頁儲存為 .jpg 至相簿！")
+                            }
                         }
                     },
                     .cancel(Text("取消"))
                 ]
             )
         }
-        .sheet(isPresented: $showingJPGShareSheet) {
-            if let url = jpgShareURL {
+        .sheet(item: $activeModal) { modal in
+            switch modal {
+            case .pdfExport:
+                PDFExportSheet(
+                    pages: viewModel.pages,
+                    store: viewModel.pageStore,
+                    defaultPrefix: viewModel.currentFolder
+                )
+            case .ocrResult:
+                OCRResultSheet(
+                    text: viewModel.lastOCRText ?? "",
+                    onCopy: {
+                        UIPasteboard.general.string = viewModel.lastOCRText
+                    }
+                )
+            case .jpgShare(let url):
                 ActivityView(activityItems: [url])
             }
         }

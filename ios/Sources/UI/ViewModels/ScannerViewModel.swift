@@ -6,6 +6,7 @@ import QuartzCore
 import AudioToolbox
 import Combine
 import UIKit
+import Photos
 
 /// 掃描模式：單頁展平 或 雙頁跨頁掃描
 public enum ScanMode: String, CaseIterable, Identifiable {
@@ -796,23 +797,55 @@ public final class ScannerViewModel: ObservableObject {
 
     // MARK: - JPG 匯出與儲存
 
-    /// 將當前頁面儲存為 .jpg 檔案並寫入相簿或產生分享實體檔案路徑
-    @discardableResult
-    public func saveCurrentPageAsJPEG(saveToPhotos: Bool = true) async -> URL? {
-        guard let page = pageStore.lastPage,
-              let image = pageStore.image(for: page) ?? lastPreviewImage,
+    /// 檢查並請求加入相簿權限 (iOS 14+ .addOnly 最小隱私授權)
+    public func requestPhotoLibraryAddPermission() async -> Bool {
+        let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+        if status == .authorized || status == .limited {
+            return true
+        }
+        if status == .notDetermined {
+            let newStatus = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+            return newStatus == .authorized || newStatus == .limited
+        }
+        return false
+    }
+
+    /// 將當前頁面儲存至相簿為 .jpg 圖片 (真非同步寫入並精確回報結果)
+    public func saveCurrentPageToPhotos() async -> Result<Void, String> {
+        let hasPermission = await requestPhotoLibraryAddPermission()
+        guard hasPermission else {
+            return .failure("相簿權限不足，請至 iPhone「設定」>「隱私權與安全性」>「照片」允許加入照片。")
+        }
+
+        let targetImage = lastPreviewImage ?? pageStore.lastPage.flatMap { pageStore.image(for: $0) }
+        guard let image = targetImage else {
+            return .failure("無法取得要儲存的頁面影像。")
+        }
+
+        return await withCheckedContinuation { continuation in
+            PHPhotoLibrary.shared().performChanges({
+                PHAssetChangeRequest.creationRequestForAsset(from: image)
+            }) { success, error in
+                if success {
+                    continuation.resume(returning: .success(()))
+                } else {
+                    let errMsg = error?.localizedDescription ?? "儲存失敗"
+                    continuation.resume(returning: .failure("寫入相簿失敗：\(errMsg)"))
+                }
+            }
+        }
+    }
+
+    /// 將當前頁面儲存為實體 .jpg 檔案路徑（供 UIActivityViewController 系統原生分享）
+    public func exportCurrentPageAsJPEGFile() async -> URL? {
+        let targetImage = lastPreviewImage ?? pageStore.lastPage.flatMap { pageStore.image(for: $0) }
+        guard let image = targetImage,
               let data = image.jpegData(compressionQuality: 0.95) else {
             showError("無法生成 JPG 影像資料")
             return nil
         }
 
-        // 1. 若指定儲存至相簿
-        if saveToPhotos {
-            UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-        }
-
-        // 2. 寫入暫存目錄以取得實體 .jpg 檔案路徑（供分享或其他應用程式開啟）
-        let fileName = "Scan_\(Int(Date().timeIntervalSince1970))_\(page.id.uuidString.prefix(6)).jpg"
+        let fileName = "Scan_\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(6)).jpg"
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
 
         do {
@@ -824,17 +857,39 @@ public final class ScannerViewModel: ObservableObject {
         }
     }
 
-    /// 批次將所有掃描頁儲存至相簿為 .jpg 圖片
-    @discardableResult
-    public func saveAllPagesToPhotos() async -> Int {
-        var count = 0
+    /// 批次將所有掃描頁儲存至相簿為 .jpg 圖片 (逐頁真實寫入並統計成功筆數)
+    public func saveAllPagesToPhotos() async -> (success: Int, total: Int, errorMessage: String?) {
+        let hasPermission = await requestPhotoLibraryAddPermission()
+        guard hasPermission else {
+            return (0, pages.count, "相簿權限不足，請至 iPhone「設定」>「隱私權與安全性」>「照片」允許加入照片。")
+        }
+
+        var successCount = 0
+        let totalCount = pages.count
         for page in pages {
             if let image = pageStore.image(for: page) {
-                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-                count += 1
+                let saved: Bool = await withCheckedContinuation { continuation in
+                    PHPhotoLibrary.shared().performChanges({
+                        PHAssetChangeRequest.creationRequestForAsset(from: image)
+                    }) { success, _ in
+                        continuation.resume(returning: success)
+                    }
+                }
+                if saved {
+                    successCount += 1
+                }
             }
         }
-        return count
+        return (successCount, totalCount, nil)
+    }
+
+    /// 向後相容舊版呼叫
+    @discardableResult
+    public func saveCurrentPageAsJPEG(saveToPhotos: Bool = true) async -> URL? {
+        if saveToPhotos {
+            _ = await saveCurrentPageToPhotos()
+        }
+        return await exportCurrentPageAsJPEGFile()
     }
 
     // MARK: - 頁面管理
