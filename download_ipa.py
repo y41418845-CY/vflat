@@ -7,6 +7,17 @@ import zipfile
 import io
 
 def get_token():
+    try:
+        url_res = subprocess.run(['git', 'remote', 'get-url', 'origin'], capture_output=True, text=True, check=True)
+        url = url_res.stdout.strip()
+        if '@github.com' in url and 'https://' in url:
+            auth_part = url.split('https://', 1)[1].split('@github.com', 1)[0]
+            token = auth_part.split(':', 1)[-1]
+            if token.startswith('ghp_') or token.startswith('github_pat_'):
+                return token
+    except Exception:
+        pass
+
     res = subprocess.run(
         ['git', 'credential', 'fill'],
         input='protocol=https\nhost=github.com\nusername=y41418845-CY\n\n',
