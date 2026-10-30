@@ -1,0 +1,30 @@
+name: Build vFlat IPA
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate Xcode Project
+        run: xcodegen generate
+      - name: Build (no-sign)
+        run: |
+          xcodebuild -scheme vFlat \
+            -destination "generic/platform=iOS" \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            ARCHS=arm64 \
+            build
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -r build/Release-iphoneos/vFlat.app Payload/
+          zip -r vFlat.ipa Payload/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vFlat.ipa
+          path: vFlat.ipa
