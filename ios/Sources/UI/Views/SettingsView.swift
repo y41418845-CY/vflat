@@ -29,7 +29,16 @@ public struct SettingsView: View {
         NavigationView {
             Form {
                 // 1. 掃描核心設定 (Camera & Scan)
-                Section(header: Text("相機與掃描")) {
+                Section(
+                    header: Text("相機與掃描"),
+                    footer: Text("使用超廣角相機可在同手持距離下獲得開闊視野與微距近拍能力，對齊原廠 vFlat 體驗。")
+                ) {
+                    Picker("相機鏡頭", selection: $viewModel.cameraLens) {
+                        ForEach(CameraLens.allCases) { lens in
+                            Text(lens.displayName).tag(lens)
+                        }
+                    }
+
                     Toggle("掃描輔助引導線", isOn: $viewModel.useScanGuide)
                     Toggle("掃描前自動對焦", isOn: $viewModel.autofocusBeforeScan)
                     Toggle("觸控螢幕拍照", isOn: $viewModel.touchToScan)

@@ -99,6 +99,14 @@ public final class ScannerViewModel: ObservableObject {
         }
     }
 
+    /// 相機鏡頭設定 (超廣角推薦 vs 一般廣角)
+    @Published public var cameraLens: CameraLens = .ultraWide {
+        didSet {
+            guard oldValue != cameraLens else { return }
+            cameraManager.setLens(cameraLens)
+        }
+    }
+
     @Published public var isFlashlightOn: Bool = false {
         didSet {
             guard oldValue != isFlashlightOn else { return }
@@ -233,7 +241,8 @@ public final class ScannerViewModel: ObservableObject {
         }
 
         cameraPermissionDenied = false
-        cameraManager.setupSession(resolution: scanResolution)
+        cameraManager.setupSession(resolution: scanResolution, lens: cameraLens)
+        cameraLens = cameraManager.lens
         cameraManager.startSession()
         motionSensor.startUpdates()
         pageStore.load()

@@ -29,6 +29,28 @@ public enum ScanResolution: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// 相機鏡頭類型 (對齊 vFlat 鏡頭設定：超廣角推薦 vs 一般廣角)
+public enum CameraLens: String, CaseIterable, Identifiable, Sendable {
+    case ultraWide = "ultraWide"
+    case wideAngle = "wideAngle"
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .ultraWide: return "超廣角相機 (推薦)"
+        case .wideAngle: return "一般相機 (1x)"
+        }
+    }
+
+    public var deviceType: AVCaptureDevice.DeviceType {
+        switch self {
+        case .ultraWide: return .builtInUltraWideCamera
+        case .wideAngle: return .builtInWideAngleCamera
+        }
+    }
+}
+
 /// 負責驅動 iPhone 原生相機硬體之影格採集管理器
 public final class CameraManager: NSObject, ObservableObject {
     public enum CameraError: Error {
@@ -58,6 +80,7 @@ public final class CameraManager: NSObject, ObservableObject {
     private var videoDevice: AVCaptureDevice?
     private var videoInput: AVCaptureDeviceInput?
     private var currentResolution: ScanResolution = .ultraHD4K
+    private var currentLens: CameraLens = .ultraWide
 
     @Published public private(set) var isRunning: Bool = false
     @Published public private(set) var isAuthorized: Bool = false
@@ -66,6 +89,8 @@ public final class CameraManager: NSObject, ObservableObject {
     @Published public private(set) var isTorchAvailable: Bool = false
     @Published public private(set) var isTorchOn: Bool = false
     @Published public private(set) var resolution: ScanResolution = .ultraHD4K
+    @Published public private(set) var lens: CameraLens = .ultraWide
+    @Published public private(set) var isUltraWideSupported: Bool = false
 
     public override init() {
         super.init()
@@ -91,11 +116,11 @@ public final class CameraManager: NSObject, ObservableObject {
 
     // MARK: - 工作階段設定
 
-    /// 初始化相機採集管線 (預設 4K，支援時自動啟用 60fps)
-    public func setupSession(resolution: ScanResolution = .ultraHD4K) {
+    /// 初始化相機採集管線 (預設 4K、超廣角鏡頭對齊 vFlat，支援時自動啟用 60fps)
+    public func setupSession(resolution: ScanResolution = .ultraHD4K, lens: CameraLens = .ultraWide) {
         sessionQueue.async { [weak self] in
             guard let self = self else { return }
-            self.configureSession(resolution: resolution, restartIfNeeded: false)
+            self.configureSession(resolution: resolution, lens: lens, restartIfNeeded: false)
         }
     }
 
@@ -107,13 +132,26 @@ public final class CameraManager: NSObject, ObservableObject {
                 DispatchQueue.main.async { completion?() }
                 return
             }
-            self.configureSession(resolution: newResolution, restartIfNeeded: true)
+            self.configureSession(resolution: newResolution, lens: self.currentLens, restartIfNeeded: true)
+            DispatchQueue.main.async { completion?() }
+        }
+    }
+
+    /// 切換相機鏡頭 (超廣角 0.5x vs 一般廣角 1x)
+    public func setLens(_ newLens: CameraLens, completion: (() -> Void)? = nil) {
+        sessionQueue.async { [weak self] in
+            guard let self = self else { return }
+            guard newLens != self.currentLens else {
+                DispatchQueue.main.async { completion?() }
+                return
+            }
+            self.configureSession(resolution: self.currentResolution, lens: newLens, restartIfNeeded: true)
             DispatchQueue.main.async { completion?() }
         }
     }
 
     /// 於 sessionQueue 上執行的實際設定流程
-    private func configureSession(resolution: ScanResolution, restartIfNeeded: Bool) {
+    private func configureSession(resolution: ScanResolution, lens: CameraLens, restartIfNeeded: Bool) {
         let wasRunning = captureSession.isRunning
         if wasRunning && restartIfNeeded {
             captureSession.stopRunning()
@@ -130,12 +168,36 @@ public final class CameraManager: NSObject, ObservableObject {
         self.currentResolution = resolution
         DispatchQueue.main.async { self.resolution = resolution }
 
-        // 2. 選取廣角主相機
-        if videoInput == nil {
-            guard let camera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
-                print("[CameraManager] 無法取得後置廣角鏡頭")
-                captureSession.commitConfiguration()
-                return
+        // 2. 依鏡頭偏好選取相機 (超廣角優先；若不支援超廣角則自動降級至一般廣角)
+        let hasUltraWide = AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back) != nil
+        DispatchQueue.main.async { self.isUltraWideSupported = hasUltraWide }
+
+        let chosenDevice: AVCaptureDevice?
+        let effectiveLens: CameraLens
+        if lens == .ultraWide, let ultraWideCamera = AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back) {
+            chosenDevice = ultraWideCamera
+            effectiveLens = .ultraWide
+        } else if let wideCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) {
+            chosenDevice = wideCamera
+            effectiveLens = .wideAngle
+        } else {
+            chosenDevice = nil
+            effectiveLens = .wideAngle
+        }
+
+        self.currentLens = effectiveLens
+        DispatchQueue.main.async { self.lens = effectiveLens }
+
+        guard let camera = chosenDevice else {
+            print("[CameraManager] 無法取得相機鏡頭設備")
+            captureSession.commitConfiguration()
+            return
+        }
+
+        // 若鏡頭變更或尚未建立 input，重新建立 videoInput
+        if videoDevice != camera || videoInput == nil {
+            if let existing = videoInput {
+                captureSession.removeInput(existing)
             }
             do {
                 let input = try AVCaptureDeviceInput(device: camera)
@@ -143,6 +205,8 @@ public final class CameraManager: NSObject, ObservableObject {
                     captureSession.addInput(input)
                     self.videoInput = input
                     self.videoDevice = camera
+                } else {
+                    print("[CameraManager] 無法添加 AVCaptureDeviceInput")
                 }
             } catch {
                 print("[CameraManager] 建立相機輸入失敗: \(error)")
