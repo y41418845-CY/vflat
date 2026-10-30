@@ -41,16 +41,20 @@ jobs:
       - name: Run Unit Tests
         run: |
           set -o pipefail
-          DEVICE_NAME=$(xcrun simctl list devices available | grep -E "iPhone (16|15|SE)" | head -n 1 | sed -E 's/^[[:space:]]+//; s/[[:space:]]+\(.*\)$//')
-          if [ -z "$DEVICE_NAME" ]; then
-            DEVICE_NAME="iPhone 16"
+          # 優先由 simctl 抓取唯一的 Simulator UUID，避免名稱後綴 (Shutdown) 影響匹配
+          SIM_ID=$(xcrun simctl list devices available | grep -E "iPhone" | head -n 1 | grep -o -E '[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}')
+          if [ -n "$SIM_ID" ]; then
+            echo "Selected simulator UUID: $SIM_ID"
+            DEST="platform=iOS Simulator,id=$SIM_ID"
+          else
+            echo "Falling back to generic iOS Simulator"
+            DEST="generic/platform=iOS Simulator"
           fi
-          echo "Selected simulator: $DEVICE_NAME"
 
           xcodebuild test \
             -project vFlat.xcodeproj \
             -scheme vFlat \
-            -destination "platform=iOS Simulator,name=$DEVICE_NAME" \
+            -destination "$DEST" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
