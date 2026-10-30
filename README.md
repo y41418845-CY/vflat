@@ -1,6 +1,6 @@
 # vFlat 逆向工程與 iOS 原生重構專案 (vFlat-iOS)
 
-![Version](https://img.shields.io/badge/version-v0.9.8-blue.svg)
+![Version](https://img.shields.io/badge/version-v1.1.1-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-iOS%2016.0%2B-black.svg)
 ![Swift](https://img.shields.io/badge/Swift-5.9-orange.svg)
 ![Metal](https://img.shields.io/badge/Metal-60fps-red.svg)
@@ -8,7 +8,7 @@
 
 本專案由兩大核心部分組成：
 1. **vFlat 深度逆向工程分析 (REA)**：對 vFlat Android 官方發行版 (`com.voyagerx.scanner`) 之二進位函式庫（`libnative-scan.so`）、AI 神經網路模型（`freeform_v3_2.dat`, `optp_v3_3.dat`）進行底層逆向，解密其專利防逆向混淆、1250 浮點數輸出置換表、ARM NEON 向量正規化與 RQ 矩陣分解。
-2. **iPhone 原生獨立重構 (`vFlat-iOS`)**：基於現代 Apple 原生技術棧（SwiftUI + AVFoundation + Metal + Vision）完全重新打造零第三方依賴、60fps 超流暢、低功耗之文件與書本掃描器。
+2. **iPhone 原生獨立重構 (`vFlat-iOS`)**：基於現代 Apple 原生技術棧（SwiftUI + AVFoundation + Metal + Vision + PDFKit）完全重新打造零第三方依賴、60fps 超流暢、低功耗之文件與書本掃描器。
 
 詳細技術交接手冊與底層二進位逆向細節請參閱：[`AGENT_HANDOVER.md`](file:///AGENT_HANDOVER.md)
 
@@ -17,17 +17,28 @@
 ## 核心亮點與特色
 
 - **零外部第三方依賴 (Zero 3rd-Party Dependencies)**：
-  - 核心全採 Apple 原生框架（AVFoundation、Vision、Metal、CoreMotion、SwiftUI），無需笨重且吃電的外部函式庫。
+  - 核心全採 Apple 原生框架（AVFoundation、Vision、Metal、CoreImage、CoreMotion、PDFKit、SwiftUI），無需笨重且吃電的外部函式庫。
 - **60fps 極致流暢預覽**：
   - Metal MSL 著色器硬體加速渲染，透過 `CVMetalTextureCache` 零拷貝導入視訊影格。
   - 物理 Aspect-Fill 投影，杜絕畫面拉伸變形。
 - **雙引擎自適應抓框 (Dual-Engine Boundary Detection)**：
   - 主引擎：Apple Vision 深度學習語意分割（`VNDetectDocumentSegmentationRequest`）。
   - 輔助引擎：多候選高階幾何四邊形偵測（`VNDetectRectanglesRequest`）。
-  - 套用 EMA 時序平滑濾波與物理貼膜級邊界收縮，完美緊咬物體邊緣。
-- **零延遲高畫質拍照**：
-  - 輕觸快門觸發原生白光閃爍，直接自相機視訊管線抓取高畫質靜態影格。
-  - 動態即時更新左下角縮圖，並支援自動儲存至系統相簿。
+  - 套用 EMA 時序平滑濾波與物理貼膜級邊界收縮，緊咬物體邊緣。
+- **自動穩定捕捉拍照 (Auto-Capture)**：
+  - 演算法監控四角點位移量 $\Delta \le 0.02$ 持續 500ms 自動擊發快門，並帶有綠色環狀進度條動畫。
+- **QR Code / 條碼自動解析**：
+  - Apple Vision 實時條碼辨識，頂部彈簧動畫滑出懸浮智慧膠囊，一鍵複製內容或跳轉 Safari 開啟網址。
+- **25×25 自由曲面 GPU 離屏展平 (Metal Dewarping)**：
+  - 依據橫向 25 條微弧線微分積分自適應計算物理展開尺寸，透過 GPU 離屏著色器撫平書頁裝訂波浪彎曲。
+- **雙頁書本中縫自動分割 (Two-Page Auto Split)**：
+  - 自動分析中央光度極小值鎖定書脊中縫，智慧切割為獨立左右兩頁，並剔除裝訂線陰影，支援 LTR/RTL 閱讀順序。
+- **6 大專用文件增強濾鏡**：
+  - 原圖、智慧自動平衡、去暗角增亮、黑白灰階、高反差清晰二值、白板去雜訊模式，支援單頁檢視即時切換。
+- **多頁 PDF 打包與壓縮匯出**：
+  - 原生 `PDFKit` 支援連拍批次合成為單一 PDF，提供 A4 / Letter / 自適應版面與 4 種壓縮等級，支援 iOS 原生 Share Sheet 分享。
+- **放大鏡手動角點微調 (Loupe Crop)**：
+  - 拖曳四角點時即時浮現 2.2x 圓形放大鏡與十字準心，徹底消除手指遮擋。
 - **GitHub Actions 雲端自動打包 CI/CD**：
   - 每次 Push 自動在雲端 macOS Sequoia 環境完成編譯並生成未簽名之 `vFlat.ipa`。
   - 提供本地一鍵自動下載腳本，免手動至網頁下載。
@@ -49,7 +60,7 @@
 
 ### 步驟 1：下載最新 `vFlat.ipa`
 本專案已配置一鍵自動下載工具：
-- 執行專案根目錄的 `fetch_ipa.bat`（或在終端機執行 `python download_ipa.py`）。
+- 執行專案根目錄的 `download_ipa.bat`（或在終端機執行 `python download_ipa.py`）。
 - 腳本會透過 GitHub API 自動抓取最新成功構建的 Actions Artifacts，並在本地根目錄產生 `vFlat.ipa`。
 
 ### 步驟 2：使用 Sideloadly 側載至 iPhone
@@ -68,7 +79,7 @@ vflat/
 │   ├── Package.swift                # Swift 5.9 SPM 套件定義
 │   ├── Info.plist                   # 系統權限宣告 (Camera, Photo Library)
 │   ├── Sources/
-│   │   ├── Core/                    # 核心底層 (Camera, Motion, Dewarp, Metal)
+│   │   ├── Core/                    # 核心底層 (Camera, Motion, Dewarp, Metal, Export)
 │   │   ├── UI/                      # 現代 SwiftUI 介面與 ViewModel
 │   │   └── vFlatApp/                # App 進入點
 │   └── Tests/                       # 幾何數學單元測試
@@ -79,7 +90,7 @@ vflat/
 ├── .github/workflows/               # GitHub Actions CI/CD 自動構建腳本
 ├── AGENT_HANDOVER.md                # AI Agent 深度技術交接手冊
 ├── VERSION                          # 專案語意化版本號宣告檔
-├── fetch_ipa.bat                    # Windows 純 ASCII 一鍵下載 IPA 批次檔
+├── download_ipa.bat                 # Windows 純 ASCII 一鍵下載 IPA 批次檔
 └── download_ipa.py                  # Python GitHub Actions IPA 下載器
 ```
 
