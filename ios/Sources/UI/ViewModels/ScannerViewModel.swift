@@ -647,6 +647,133 @@ public final class ScannerViewModel: ObservableObject {
         }
     }
 
+    /// 對指定頁面（預設為最後一頁）執行 AI 手機陰影消除 (Shadow Removal)
+    public func applyShadowRemoval(to targetPage: ScanPage? = nil) async {
+        guard !isProcessingCapture,
+              let page = targetPage ?? pageStore.lastPage,
+              let currentImage = pageStore.image(for: page) ?? lastPreviewImage else {
+            return
+        }
+
+        isProcessingCapture = true
+        defer { isProcessingCapture = false }
+
+        let store = pageStore
+        let pageId = page.id
+        let filterMode = page.filterMode
+
+        let result = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+            return ShadowRemovalProcessor.shared.removeShadow(image: currentImage)
+        }.value
+
+        guard let cleaned = result else {
+            showError("陰影消除失敗")
+            return
+        }
+
+        let updated = await store.updateProcessed(id: pageId, image: cleaned, filterMode: filterMode)
+        if updated {
+            lastPreviewImage = cleaned
+            lastThumbnail = store.thumbnail(for: page)
+        } else {
+            showError("儲存陰影消除結果失敗")
+        }
+    }
+
+    /// 對指定頁面執行 25x25 自由曲面展平 (Metal GPU Dewarping)
+    public func applyDewarp(to targetPage: ScanPage? = nil) async {
+        guard !isProcessingCapture,
+              let page = targetPage ?? pageStore.lastPage,
+              let currentImage = pageStore.image(for: page) ?? lastPreviewImage else {
+            return
+        }
+
+        isProcessingCapture = true
+        defer { isProcessingCapture = false }
+
+        let store = pageStore
+        let pageId = page.id
+        let filterMode = page.filterMode
+
+        let result = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+            let dynamicGrid = DynamicDewarpPredictor.shared.predictGrid(for: currentImage)
+            return MetalOffscreenDewarper.shared.dewarpImage(
+                image: currentImage,
+                curvedGrid: dynamicGrid,
+                dewarpStrength: 1.0
+            )
+        }.value
+
+        guard let dewarped = result else {
+            showError("曲面展平失敗")
+            return
+        }
+
+        let updated = await store.updateProcessed(id: pageId, image: dewarped, filterMode: filterMode)
+        if updated {
+            lastPreviewImage = dewarped
+            lastThumbnail = store.thumbnail(for: page)
+        } else {
+            showError("儲存展平結果失敗")
+        }
+    }
+
+    /// 一鍵極致旗艦修復 (Ultra Scan)：展平 + 消陰影 + 消手指 + 銳化去模糊流水線
+    public func applyUltraScan(to targetPage: ScanPage? = nil) async {
+        guard !isProcessingCapture,
+              let page = targetPage ?? pageStore.lastPage,
+              let sourceImage = pageStore.image(for: page) ?? lastPreviewImage else {
+            return
+        }
+
+        isProcessingCapture = true
+        defer { isProcessingCapture = false }
+
+        let store = pageStore
+        let pageId = page.id
+        let filterMode = page.filterMode
+
+        let result = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+            var working = sourceImage
+
+            // 1. 25x25 自由曲面 GPU 展平
+            let grid = DynamicDewarpPredictor.shared.predictGrid(for: working)
+            if let dewarped = MetalOffscreenDewarper.shared.dewarpImage(image: working, curvedGrid: grid) {
+                working = dewarped
+            }
+
+            // 2. 手機陰影均勻化消除
+            if let noShadow = ShadowRemovalProcessor.shared.removeShadow(image: working) {
+                working = noShadow
+            }
+
+            // 3. 邊緣手指抹除
+            if let noFingers = FingerRemovalProcessor.shared.removeFingers(image: working) {
+                working = noFingers
+            }
+
+            // 4. 文字邊緣與去模糊超解析度增強
+            if let deblurred = DeblurProcessor.shared.deblur(image: working) {
+                working = deblurred
+            }
+
+            return working
+        }.value
+
+        guard let finalImage = result else {
+            showError("極致掃描處理失敗")
+            return
+        }
+
+        let updated = await store.updateProcessed(id: pageId, image: finalImage, filterMode: filterMode)
+        if updated {
+            lastPreviewImage = finalImage
+            lastThumbnail = store.thumbnail(for: page)
+        } else {
+            showError("儲存極致修復結果失敗")
+        }
+    }
+
     // MARK: - 頁面管理
 
     public func deleteLastPage() {

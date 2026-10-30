@@ -174,70 +174,67 @@ public struct DocumentDetailView: View {
                 }
                 #endif
 
-                // 3.1 AI 魔法工具橫列 (去模糊 / 消手指 / 除筆跡)
+                // 3.1 AI 旗艦修復橫列 (極致全開 / 展平 / 消陰影 / 去模糊 / 消手指 / 除筆跡)
                 #if canImport(UIKit)
                 if showingAISelector {
-                    HStack(spacing: 24) {
-                        Button(action: {
-                            Task {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 16) {
+                            // 1. 一鍵極致全開 (Ultra Scan)
+                            Button(action: {
+                                Task {
+                                    await viewModel.applyUltraScan()
+                                }
+                            }) {
+                                VStack(spacing: 4) {
+                                    Image(systemName: "wand.and.stars.inverse")
+                                        .font(.system(size: 19, weight: .bold))
+                                        .foregroundColor(.white)
+                                        .frame(width: 46, height: 46)
+                                        .background(
+                                            LinearGradient(
+                                                gradient: Gradient(colors: [Color(red: 0.98, green: 0.65, blue: 0.22), Color(red: 0.95, green: 0.42, blue: 0.21)]),
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                        )
+                                        .clipShape(Circle())
+                                        .shadow(color: Color.orange.opacity(0.35), radius: 4, y: 2)
+
+                                    Text("極致全開")
+                                        .font(.system(size: 11, weight: .bold))
+                                        .foregroundColor(Color.orange)
+                                }
+                            }
+                            .disabled(viewModel.isProcessingCapture || viewModel.pageCount == 0)
+
+                            // 2. 25x25 自由曲面展平
+                            aiFeatureButton(title: "曲面展平", icon: "arrow.left.and.right.square") {
+                                await viewModel.applyDewarp()
+                            }
+
+                            // 3. 手機陰影均勻化消除
+                            aiFeatureButton(title: "消除陰影", icon: "sun.max.fill") {
+                                await viewModel.applyShadowRemoval()
+                            }
+
+                            // 4. 文字清晰去模糊
+                            aiFeatureButton(title: "文字銳化", icon: "sparkles.rectangle.stack") {
                                 await viewModel.applyDeblur()
                             }
-                        }) {
-                            VStack(spacing: 4) {
-                                Image(systemName: "sparkles.rectangle.stack")
-                                    .font(.system(size: 18))
-                                    .foregroundColor(.white)
-                                    .frame(width: 44, height: 44)
-                                    .background(Color(red: 0.22, green: 0.72, blue: 0.62))
-                                    .clipShape(Circle())
-                                Text("去模糊")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(.black)
-                            }
-                        }
-                        .disabled(viewModel.isProcessingCapture || viewModel.pageCount == 0)
 
-                        Button(action: {
-                            Task {
+                            // 5. 邊緣手指抹除
+                            aiFeatureButton(title: "手指抹除", icon: "hand.raised.slash") {
                                 await viewModel.applyFingerRemoval()
                             }
-                        }) {
-                            VStack(spacing: 4) {
-                                Image(systemName: "hand.raised.slash")
-                                    .font(.system(size: 18))
-                                    .foregroundColor(.white)
-                                    .frame(width: 44, height: 44)
-                                    .background(Color(red: 0.22, green: 0.72, blue: 0.62))
-                                    .clipShape(Circle())
-                                Text("消手指")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(.black)
-                            }
-                        }
-                        .disabled(viewModel.isProcessingCapture || viewModel.pageCount == 0)
 
-                        Button(action: {
-                            Task {
+                            // 6. 手寫筆跡消除
+                            aiFeatureButton(title: "清除筆跡", icon: "pencil.slash") {
                                 await viewModel.applyHandwritingRemoval()
                             }
-                        }) {
-                            VStack(spacing: 4) {
-                                Image(systemName: "pencil.slash")
-                                    .font(.system(size: 18))
-                                    .foregroundColor(.white)
-                                    .frame(width: 44, height: 44)
-                                    .background(Color(red: 0.22, green: 0.72, blue: 0.62))
-                                    .clipShape(Circle())
-                                Text("除筆跡")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(.black)
-                            }
                         }
-                        .disabled(viewModel.isProcessingCapture || viewModel.pageCount == 0)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
                     .background(Color(white: 0.98))
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
@@ -343,6 +340,30 @@ public struct DocumentDetailView: View {
         }
         .disabled(viewModel.pageCount == 0 && icon != "arrow.clockwise")
         .opacity(viewModel.pageCount == 0 && icon != "arrow.clockwise" ? 0.35 : 1)
+    }
+
+    @ViewBuilder
+    private func aiFeatureButton(title: String, icon: String, action: @escaping () async -> Void) -> some View {
+        Button(action: {
+            Task {
+                await action()
+            }
+        }) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 18))
+                    .foregroundColor(.white)
+                    .frame(width: 46, height: 46)
+                    .background(Color(red: 0.22, green: 0.72, blue: 0.62))
+                    .clipShape(Circle())
+                    .shadow(color: Color(red: 0.22, green: 0.72, blue: 0.62).opacity(0.3), radius: 4, y: 2)
+
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.black)
+            }
+        }
+        .disabled(viewModel.isProcessingCapture || viewModel.pageCount == 0)
     }
 }
 
