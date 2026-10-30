@@ -18,6 +18,7 @@ public final class ScannerViewModel: ObservableObject {
     @Published public var isDocumentDetected: Bool = false
     @Published public var capturedPageCount: Int = 182 // 對齊圖一計數狀態
     @Published public var isAutoCaptureEnabled: Bool = false
+    @Published public var autoCaptureProgress: Double = 0.0 // 自動穩定捕捉進度 0.0 ~ 1.0
     @Published public var currentFolder: String = "涓建築"
     @Published public var isFlashlightOn: Bool = false
 
@@ -25,6 +26,15 @@ public final class ScannerViewModel: ObservableObject {
     @Published public var showingDocumentDetail: Bool = false
     @Published public var showingPhotoPicker: Bool = false
     @Published public var showingSettings: Bool = false
+    @Published public var showingPDFExportSheet: Bool = false
+
+    // 濾鏡狀態
+    #if canImport(UIKit)
+    @Published public var selectedFilterMode: DocumentFilterMode = .auto
+    @Published public var lastRawCapturedImage: UIImage? = nil
+    @Published public var lastCapturedImage: UIImage? = nil
+    @Published public var capturedImages: [UIImage] = []
+    #endif
 
     // REA 逆向成果配置項 (Settings Preferences)
     @Published public var useScanGuide: Bool = true
@@ -44,22 +54,17 @@ public final class ScannerViewModel: ObservableObject {
 
     @Published public var isShutterFlashing: Bool = false
 
-    #if canImport(UIKit)
-    @Published public var lastCapturedImage: UIImage? = nil
-    @Published public var capturedImages: [UIImage] = []
-    #endif
-
     public let cameraManager = CameraManager()
     public let motionSensor = MotionSensor()
     public let documentDetector = DocumentDetector()
+    public let autoCaptureDetector = AutoCaptureDetector()
     public var metalRenderer: MetalDewarpRenderer?
 
     public init() {
         setupDetector()
     }
 
-    private var stableFrameCount: Int = 0
-    private var lastCaptureTimestamp: TimeInterval = 0
+    private var lastAutoCaptureTime: TimeInterval = 0
 
     private func setupDetector() {
         documentDetector.onDocumentDetected = { [weak self] doc in
@@ -68,17 +73,20 @@ public final class ScannerViewModel: ObservableObject {
                 self.detectedDocument = doc
                 self.isDocumentDetected = (doc != nil)
 
-                // vFlat 招牌自動掃描機制 (Auto-Scan)：當框選物連續穩定時自動拍攝
-                if self.isAutoCaptureEnabled, doc != nil {
-                    self.stableFrameCount += 1
+                // 對齊 OpenScan 之 Auto-Capture 自動穩定快門偵測
+                if self.isAutoCaptureEnabled {
                     let now = Date().timeIntervalSince1970
-                    if self.stableFrameCount >= 8 && (now - self.lastCaptureTimestamp) > 2.0 {
-                        self.stableFrameCount = 0
-                        self.lastCaptureTimestamp = now
+                    let shouldTrigger = self.autoCaptureDetector.processFrame(document: doc, at: now)
+                    self.autoCaptureProgress = self.autoCaptureDetector.stabilityProgress
+
+                    // 避免連續短時間連擊 (至少間隔 1.8 秒)
+                    if shouldTrigger && (now - self.lastAutoCaptureTime) > 1.8 {
+                        self.lastAutoCaptureTime = now
                         self.triggerCapture()
                     }
                 } else {
-                    self.stableFrameCount = 0
+                    self.autoCaptureDetector.reset()
+                    self.autoCaptureProgress = 0.0
                 }
             }
         }
@@ -127,14 +135,15 @@ public final class ScannerViewModel: ObservableObject {
             }
         }
 
-        // 2. 從相機串流零延遲擷取當前最新畫面，並自動套用 vFlat 校正管線 (透視拉正 + 色彩文字增強)
+        // 2. 從相機串流零延遲擷取當前最新畫面，並自動套用 vFlat 校正管線 (透視拉正 + 6大文件濾鏡增強)
         if let rawPhoto = cameraManager.captureCurrentFrame() {
+            self.lastRawCapturedImage = rawPhoto
+
             let rectifiedPhoto = DocumentRectifier.shared.autoProcessCapture(
                 image: rawPhoto,
                 document: self.detectedDocument,
                 autoCrop: self.presetAutoCrop,
-                textDarken: self.presetTextDarken,
-                colorEnhance: self.presetColorEnhance
+                filterMode: self.selectedFilterMode
             )
 
             self.lastCapturedImage = rectifiedPhoto
@@ -148,6 +157,22 @@ public final class ScannerViewModel: ObservableObject {
 
         capturedPageCount += (scanMode == .single ? 1 : 2)
     }
+
+    #if canImport(UIKit)
+    /// 手動更換文件濾鏡模式
+    public func updateFilterMode(_ mode: DocumentFilterMode) {
+        self.selectedFilterMode = mode
+        if let raw = lastRawCapturedImage {
+            let updated = DocumentRectifier.shared.autoProcessCapture(
+                image: raw,
+                document: self.detectedDocument,
+                autoCrop: self.presetAutoCrop,
+                filterMode: mode
+            )
+            self.lastCapturedImage = updated
+        }
+    }
+    #endif
 
     /// 啟動掃描工作流程
     public func startScanning() async {

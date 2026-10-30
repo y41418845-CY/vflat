@@ -37,7 +37,7 @@ public struct MetalDewarpViewRepresentable: UIViewRepresentable {
 #endif
 
 /// 主掃描相機畫面 (SwiftUI)
-/// 完整對齊原版 iPhone vFlat UI (圖一、圖二)
+/// 完整對齊原版 iPhone vFlat UI (圖一、圖二) 並整合 OpenScan 5 大核心功能
 public struct CameraScanView: View {
     @StateObject private var viewModel = ScannerViewModel()
 
@@ -58,26 +58,52 @@ public struct CameraScanView: View {
             #endif
 
             // 2. 輔助導引層 (自動文件邊界框選、中央「尋找文件」標籤、十字姿態儀)
-            // 必須設定 ignoresSafeArea()，使 GeometryReader 取得全螢幕滿版畫布 (393x852)，與底層相機紋理 100% 像素對齊
             ScanGuideOverlay(viewModel: viewModel)
                 .ignoresSafeArea()
 
-            // 3. 頂部工具列與底部控制層
+            // 3. 自動穩定捕捉環狀進度指示器 (對齊 OpenScan 視覺提示)
+            if viewModel.isAutoCaptureEnabled && viewModel.autoCaptureProgress > 0.05 {
+                VStack {
+                    Spacer()
+                    ZStack {
+                        Circle()
+                            .stroke(Color.white.opacity(0.3), lineWidth: 4)
+                            .frame(width: 54, height: 54)
+
+                        Circle()
+                            .trim(from: 0.0, to: CGFloat(viewModel.autoCaptureProgress))
+                            .stroke(Color(red: 0.22, green: 0.85, blue: 0.45), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                            .frame(width: 54, height: 54)
+
+                        Image(systemName: "camera.viewfinder")
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+                    .padding(.bottom, 160)
+                }
+                .transition(.opacity)
+                .animation(.easeInOut(duration: 0.2), value: viewModel.autoCaptureProgress)
+            }
+
+            // 4. 頂部工具列與底部控制層
             VStack(spacing: 0) {
                 // 頂部主導航列 (資料庫、Upgrade、設定) - 對齊圖一最上方
                 HStack(spacing: 12) {
-                    // 左：資料庫按鈕
-                    Button(action: {}) {
+                    // 左：資料庫 / PDF 匯出按鈕
+                    Button(action: {
+                        viewModel.showingPDFExportSheet = true
+                    }) {
                         HStack(spacing: 6) {
-                            Image(systemName: "folder")
-                                .font(.system(size: 14, weight: .semibold))
-                            Text("資料庫")
-                                .font(.system(size: 15, weight: .bold))
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("匯出 PDF")
+                                .font(.system(size: 14, weight: .bold))
                         }
                         .foregroundColor(.white)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
-                        .background(Color.white.opacity(0.18))
+                        .background(Color.white.opacity(0.2))
                         .clipShape(Capsule())
                     }
 
@@ -98,7 +124,7 @@ public struct CameraScanView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 44) // 避開安全區域與動態島
 
-                // 次頂部功能列 (閃光燈、定時器、Auto Scan 徽章、濾鏡) - 對齊圖一
+                // 次頂部功能列 (閃光燈、定時器、Auto Scan 開關、濾鏡模式) - 對齊圖一
                 HStack {
                     Button(action: {
                         viewModel.isFlashlightOn.toggle()
@@ -118,16 +144,22 @@ public struct CameraScanView: View {
 
                     Spacer()
 
-                    Button(action: {}) {
+                    Button(action: {
+                        viewModel.isAutoCaptureEnabled.toggle()
+                    }) {
                         HStack(spacing: 4) {
-                            Image(systemName: "crown.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(.yellow)
+                            Image(systemName: viewModel.isAutoCaptureEnabled ? "checkmark.circle.fill" : "camera.metering.matrix")
+                                .font(.system(size: 12))
+                                .foregroundColor(viewModel.isAutoCaptureEnabled ? Color(red: 0.22, green: 0.85, blue: 0.45) : .white)
                             Text("AUTO\nSCAN")
                                 .font(.system(size: 9, weight: .bold))
                                 .lineLimit(2)
                                 .foregroundColor(.white)
                         }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(viewModel.isAutoCaptureEnabled ? Color.white.opacity(0.25) : Color.clear)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
                     }
 
                     Spacer()
@@ -154,7 +186,7 @@ public struct CameraScanView: View {
                 ScanControlBar(viewModel: viewModel)
             }
 
-            // 4. 原生相機快門閃爍白光視覺回饋 (Shutter Flash Animation)
+            // 5. 原生相機快門閃爍白光視覺回饋 (Shutter Flash Animation)
             if viewModel.isShutterFlashing {
                 Color.white
                     .ignoresSafeArea()
@@ -169,6 +201,11 @@ public struct CameraScanView: View {
         }
         .fullScreenCover(isPresented: $viewModel.showingSettings) {
             SettingsView(viewModel: viewModel)
+        }
+        .sheet(isPresented: $viewModel.showingPDFExportSheet) {
+            #if canImport(UIKit)
+            PDFExportSheet(images: viewModel.capturedImages, defaultPrefix: viewModel.currentFolder)
+            #endif
         }
         .task {
             await viewModel.startScanning()

@@ -5,9 +5,21 @@ import UIKit
 #endif
 
 /// 復刻圖一：單頁文件檢視、OCR 辨識與底部 6 大影像後處理工具頁面
+/// 整合 OpenScan 6 種濾鏡即時切換列、手動放大鏡裁剪與 PDF 匯出
 public struct DocumentDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var viewModel: ScannerViewModel
+
+    @State private var showingFilterSelector: Bool = false
+    @State private var showingLoupeCropView: Bool = false
+    @State private var showingPDFSheet: Bool = false
+    @State private var activeDocument: DetectedDocument = DetectedDocument(
+        topLeft: CGPoint(x: 0.05, y: 0.05),
+        topRight: CGPoint(x: 0.95, y: 0.05),
+        bottomRight: CGPoint(x: 0.95, y: 0.95),
+        bottomLeft: CGPoint(x: 0.05, y: 0.95),
+        confidence: 1.0
+    )
 
     public init(viewModel: ScannerViewModel) {
         self.viewModel = viewModel
@@ -15,11 +27,11 @@ public struct DocumentDetailView: View {
 
     public var body: some View {
         ZStack {
-            // 背景白底 (對齊圖一)
+            // 背景白底
             Color.white.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // 1. 頂部導航列 (對齊圖一：< 相機、182 / 183 文件夾、•••)
+                // 1. 頂部導航列 (< 相機、頁數 / 資料夾、PDF 匯出)
                 HStack {
                     Button(action: { dismiss() }) {
                         HStack(spacing: 4) {
@@ -39,9 +51,11 @@ public struct DocumentDetailView: View {
 
                     Spacer()
 
-                    Button(action: {}) {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 20, weight: .bold))
+                    Button(action: {
+                        showingPDFSheet = true
+                    }) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 18, weight: .bold))
                             .foregroundColor(.black)
                     }
                 }
@@ -51,20 +65,19 @@ public struct DocumentDetailView: View {
 
                 Divider()
 
-                // 2. 中央區域：文件大圖展示與右側姿態水印
+                // 2. 中央區域：文件大圖展示與狀態
                 ZStack {
                     Color(white: 0.96)
 
+                    #if canImport(UIKit)
                     if let image = viewModel.lastCapturedImage {
-                        #if canImport(UIKit)
                         Image(uiImage: image)
                             .resizable()
                             .scaledToFit()
                             .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
                             .padding(16)
-                        #endif
                     } else {
-                        // 範例表格模擬圖 (如圖一中冷氣開關記錄表)
+                        // 範例表格模擬圖
                         VStack(spacing: 12) {
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(Color.white)
@@ -88,27 +101,9 @@ public struct DocumentDetailView: View {
                                 .padding(24)
                         }
                     }
+                    #endif
 
-                    // 右側：十字方向姿態儀
-                    VStack {
-                        Spacer()
-                        HStack {
-                            Spacer()
-                            ZStack {
-                                Circle()
-                                    .fill(Color.black.opacity(0.12))
-                                    .frame(width: 48, height: 48)
-
-                                Image(systemName: "plus")
-                                    .font(.system(size: 20))
-                                    .foregroundColor(.black.opacity(0.3))
-                            }
-                            .padding(.trailing, 16)
-                            .padding(.bottom, 80)
-                        }
-                    }
-
-                    // 懸浮「辨識文字」按鈕 (對齊圖一中下方深青色膠囊按鈕)
+                    // 懸浮「辨識文字」按鈕
                     VStack {
                         Spacer()
                         Button(action: {}) {
@@ -129,21 +124,76 @@ public struct DocumentDetailView: View {
                     }
                 }
 
+                // 3. 濾鏡切換選擇橫列 (對齊 OpenScan 6 種濾鏡模式)
+                #if canImport(UIKit)
+                if showingFilterSelector {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 14) {
+                            ForEach(DocumentFilterMode.allCases) { mode in
+                                Button(action: {
+                                    viewModel.updateFilterMode(mode)
+                                }) {
+                                    VStack(spacing: 4) {
+                                        Image(systemName: mode.iconName)
+                                            .font(.system(size: 18))
+                                            .foregroundColor(viewModel.selectedFilterMode == mode ? .white : .black)
+                                            .frame(width: 40, height: 40)
+                                            .background(
+                                                viewModel.selectedFilterMode == mode ?
+                                                Color(red: 0.22, green: 0.72, blue: 0.62) :
+                                                Color(white: 0.92)
+                                            )
+                                            .clipShape(Circle())
+
+                                        Text(mode.rawValue)
+                                            .font(.system(size: 11, weight: viewModel.selectedFilterMode == mode ? .bold : .regular))
+                                            .foregroundColor(.black)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                    }
+                    .background(Color.white)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                #endif
+
                 Divider()
 
-                // 3. 底部 6 大功能操作列 (分享、裁剪、人工智慧增強器、簽名、重新掃描、刪除)
+                // 4. 底部 6 大功能操作列 (分享、裁剪、人工智慧增強器、簽名、重新掃描、刪除)
                 HStack(spacing: 0) {
-                    bottomToolButton(title: "分享", icon: "square.and.arrow.up") {}
+                    bottomToolButton(title: "分享", icon: "square.and.arrow.up") {
+                        showingPDFSheet = true
+                    }
                     Spacer()
-                    bottomToolButton(title: "裁剪", icon: "crop") {}
+                    bottomToolButton(title: "裁剪", icon: "crop") {
+                        if let currentDoc = viewModel.detectedDocument {
+                            activeDocument = currentDoc
+                        }
+                        showingLoupeCropView = true
+                    }
                     Spacer()
-                    bottomToolButton(title: "人工智慧\n增強器", icon: "wand.and.stars") {}
+                    bottomToolButton(title: "增強\n濾鏡", icon: "wand.and.stars") {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            showingFilterSelector.toggle()
+                        }
+                    }
                     Spacer()
                     bottomToolButton(title: "簽名", icon: "pencil.tip.crop.circle") {}
                     Spacer()
-                    bottomToolButton(title: "重新掃描", icon: "arrow.clockwise") {}
+                    bottomToolButton(title: "重新掃描", icon: "arrow.clockwise") {
+                        dismiss()
+                    }
                     Spacer()
                     bottomToolButton(title: "刪除", icon: "trash") {
+                        #if canImport(UIKit)
+                        if !viewModel.capturedImages.isEmpty {
+                            _ = viewModel.capturedImages.popLast()
+                            viewModel.lastCapturedImage = viewModel.capturedImages.last
+                        }
+                        #endif
                         if viewModel.capturedPageCount > 0 {
                             viewModel.capturedPageCount -= 1
                         }
@@ -155,6 +205,32 @@ public struct DocumentDetailView: View {
                 .background(Color.white)
             }
         }
+        #if canImport(UIKit)
+        .fullScreenCover(isPresented: $showingLoupeCropView) {
+            if let img = viewModel.lastRawCapturedImage ?? viewModel.lastCapturedImage {
+                LoupeCropView(image: img, document: $activeDocument) { newDoc in
+                    viewModel.detectedDocument = newDoc
+                    if let raw = viewModel.lastRawCapturedImage {
+                        let cropped = DocumentRectifier.shared.autoProcessCapture(
+                            image: raw,
+                            document: newDoc,
+                            autoCrop: true,
+                            filterMode: viewModel.selectedFilterMode
+                        )
+                        viewModel.lastCapturedImage = cropped
+                    }
+                }
+            }
+        }
+        .sheet(isPresented: $showingPDFSheet) {
+            PDFExportSheet(
+                images: viewModel.capturedImages.isEmpty ?
+                    (viewModel.lastCapturedImage != nil ? [viewModel.lastCapturedImage!] : []) :
+                    viewModel.capturedImages,
+                defaultPrefix: viewModel.currentFolder
+            )
+        }
+        #endif
     }
 
     @ViewBuilder
