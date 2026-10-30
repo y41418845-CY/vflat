@@ -14,6 +14,10 @@ public struct DocumentDetailView: View {
     @State private var showingAISelector: Bool = false
     @State private var showingLoupeCropView: Bool = false
     @State private var showingPDFSheet: Bool = false
+    @State private var showingExportActionSheet: Bool = false
+    @State private var showingJPGShareSheet: Bool = false
+    @State private var jpgShareURL: URL? = nil
+    @State private var toastMessage: String? = nil
     @State private var showingOCRResult: Bool = false
     @State private var activeDocument: DetectedDocument = DetectedDocument(
         topLeft: CGPoint(x: 0.0, y: 0.0),
@@ -57,7 +61,7 @@ public struct DocumentDetailView: View {
 
                     Spacer()
 
-                    Button(action: { showingPDFSheet = true }) {
+                    Button(action: { showingExportActionSheet = true }) {
                         Image(systemName: "square.and.arrow.up")
                             .font(.system(size: 18, weight: .bold))
                             .foregroundColor(viewModel.pageCount > 0 ? .black : .gray.opacity(0.4))
@@ -133,6 +137,22 @@ public struct DocumentDetailView: View {
                             }
                             .disabled(viewModel.isRecognizingText)
                             .padding(.bottom, 20)
+                        }
+                    }
+
+                    // Toast 訊息提示浮層
+                    if let message = toastMessage {
+                        VStack {
+                            Spacer()
+                            Text(message)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .background(Color.black.opacity(0.85))
+                                .clipShape(Capsule())
+                                .padding(.bottom, 72)
+                                .transition(.opacity.combined(with: .scale))
                         }
                     }
                 }
@@ -244,8 +264,8 @@ public struct DocumentDetailView: View {
 
                 // 4. 底部功能操作列
                 HStack(spacing: 0) {
-                    bottomToolButton(title: "分享", icon: "square.and.arrow.up") {
-                        showingPDFSheet = true
+                    bottomToolButton(title: "分享/匯出", icon: "square.and.arrow.up") {
+                        showingExportActionSheet = true
                     }
                     Spacer()
                     bottomToolButton(title: "裁剪", icon: "crop") {
@@ -318,7 +338,56 @@ public struct DocumentDetailView: View {
                 }
             )
         }
+        .actionSheet(isPresented: $showingExportActionSheet) {
+            ActionSheet(
+                title: Text("匯出與分享"),
+                message: Text("請選擇檔案格式或儲存方式"),
+                buttons: [
+                    .default(Text("📄 匯出 PDF 文件")) {
+                        showingPDFSheet = true
+                    },
+                    .default(Text("🖼️ 儲存成 .jpg 檔 (儲存至相簿)")) {
+                        Task {
+                            await viewModel.saveCurrentPageAsJPEG(saveToPhotos: true)
+                            showToast("✅ 已成功將頁面儲存為 .jpg 至相簿！")
+                        }
+                    },
+                    .default(Text("📤 分享當前頁 .jpg 檔案")) {
+                        Task {
+                            if let url = await viewModel.saveCurrentPageAsJPEG(saveToPhotos: false) {
+                                jpgShareURL = url
+                                showingJPGShareSheet = true
+                            }
+                        }
+                    },
+                    .default(Text("📚 批次儲存全部 \(viewModel.pageCount) 頁為 .jpg 到相簿")) {
+                        Task {
+                            let count = await viewModel.saveAllPagesToPhotos()
+                            showToast("✅ 已批次將 \(count) 頁儲存為 .jpg 至相簿！")
+                        }
+                    },
+                    .cancel(Text("取消"))
+                ]
+            )
+        }
+        .sheet(isPresented: $showingJPGShareSheet) {
+            if let url = jpgShareURL {
+                ActivityView(activityItems: [url])
+            }
+        }
         #endif
+    }
+
+    private func showToast(_ message: String) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            toastMessage = message
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            withAnimation(.easeInOut(duration: 0.2)) {
+                toastMessage = nil
+            }
+        }
     }
 
     @ViewBuilder

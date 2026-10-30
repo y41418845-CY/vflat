@@ -774,6 +774,49 @@ public final class ScannerViewModel: ObservableObject {
         }
     }
 
+    // MARK: - JPG 匯出與儲存
+
+    /// 將當前頁面儲存為 .jpg 檔案並寫入相簿或產生分享實體檔案路徑
+    @discardableResult
+    public func saveCurrentPageAsJPEG(saveToPhotos: Bool = true) async -> URL? {
+        guard let page = pageStore.lastPage,
+              let image = pageStore.image(for: page) ?? lastPreviewImage,
+              let data = image.jpegData(compressionQuality: 0.95) else {
+            showError("無法生成 JPG 影像資料")
+            return nil
+        }
+
+        // 1. 若指定儲存至相簿
+        if saveToPhotos {
+            UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+        }
+
+        // 2. 寫入暫存目錄以取得實體 .jpg 檔案路徑（供分享或其他應用程式開啟）
+        let fileName = "Scan_\(Int(Date().timeIntervalSince1970))_\(page.id.uuidString.prefix(6)).jpg"
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+
+        do {
+            try data.write(to: tempURL)
+            return tempURL
+        } catch {
+            showError("儲存 JPG 檔案失敗：\(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    /// 批次將所有掃描頁儲存至相簿為 .jpg 圖片
+    @discardableResult
+    public func saveAllPagesToPhotos() async -> Int {
+        var count = 0
+        for page in pages {
+            if let image = pageStore.image(for: page) {
+                UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+                count += 1
+            }
+        }
+        return count
+    }
+
     // MARK: - 頁面管理
 
     public func deleteLastPage() {
