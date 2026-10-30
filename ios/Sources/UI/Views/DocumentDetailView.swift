@@ -215,6 +215,7 @@ public struct DocumentDetailView: View {
                             image: raw,
                             document: newDoc,
                             autoCrop: true,
+                            enableDewarp: viewModel.presetCurveCorrection,
                             filterMode: viewModel.selectedFilterMode
                         )
                         viewModel.lastCapturedImage = cropped

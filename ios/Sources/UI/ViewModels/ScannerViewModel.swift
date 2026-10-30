@@ -144,7 +144,7 @@ public final class ScannerViewModel: ObservableObject {
             }
         }
 
-        // 2. 從相機串流零延遲擷取當前最新畫面，並自動套用 vFlat 校正管線 (透視拉正 + 6大文件濾鏡增強)
+        // 2. 從相機串流零延遲擷取當前最新畫面，並自動套用 vFlat 校正管線 (透視拉正 + 25x25 自由曲面展平 + 6大文件濾鏡增強 + 雙頁分割)
         if let rawPhoto = cameraManager.captureCurrentFrame() {
             self.lastRawCapturedImage = rawPhoto
 
@@ -152,14 +152,38 @@ public final class ScannerViewModel: ObservableObject {
                 image: rawPhoto,
                 document: self.detectedDocument,
                 autoCrop: self.presetAutoCrop,
+                enableDewarp: self.presetCurveCorrection,
                 filterMode: self.selectedFilterMode
             )
 
-            self.lastCapturedImage = rectifiedPhoto
-            self.capturedImages.append(rectifiedPhoto)
-
-            if autoSaveToGallery {
-                UIImageWriteToSavedPhotosAlbum(rectifiedPhoto, nil, nil, nil)
+            // 雙頁書本中縫自動分割機制
+            if self.scanMode == .doublePage {
+                let spineRatio = BookPageSplitter.shared.detectSpineRatio(image: rectifiedPhoto)
+                if let splitResult = BookPageSplitter.shared.splitPage(image: rectifiedPhoto, splitRatio: spineRatio) {
+                    let orderedPages = splitResult.orderedPages(leftToRight: self.twoPagesOrderLTR)
+                    for page in orderedPages {
+                        self.capturedImages.append(page)
+                    }
+                    self.lastCapturedImage = orderedPages.last
+                    if autoSaveToGallery {
+                        for page in orderedPages {
+                            UIImageWriteToSavedPhotosAlbum(page, nil, nil, nil)
+                        }
+                    }
+                } else {
+                    self.lastCapturedImage = rectifiedPhoto
+                    self.capturedImages.append(rectifiedPhoto)
+                    if autoSaveToGallery {
+                        UIImageWriteToSavedPhotosAlbum(rectifiedPhoto, nil, nil, nil)
+                    }
+                }
+            } else {
+                // 單頁模式
+                self.lastCapturedImage = rectifiedPhoto
+                self.capturedImages.append(rectifiedPhoto)
+                if autoSaveToGallery {
+                    UIImageWriteToSavedPhotosAlbum(rectifiedPhoto, nil, nil, nil)
+                }
             }
         }
         #endif
@@ -176,6 +200,7 @@ public final class ScannerViewModel: ObservableObject {
                 image: raw,
                 document: self.detectedDocument,
                 autoCrop: self.presetAutoCrop,
+                enableDewarp: self.presetCurveCorrection,
                 filterMode: mode
             )
             self.lastCapturedImage = updated

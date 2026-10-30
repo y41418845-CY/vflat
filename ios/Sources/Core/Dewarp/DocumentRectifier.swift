@@ -138,21 +138,31 @@ public final class DocumentRectifier {
         return UIImage(cgImage: cgImage, scale: image.scale, orientation: .up)
     }
 
-    /// 一鍵自動校正管線：拍完照後自動透視拉平並套用指定濾鏡
+    /// 一鍵自動校正管線：拍完照後自動透視拉平、25x25 自由曲面 GPU 展平，並套用指定濾鏡
     public func autoProcessCapture(
         image: UIImage,
         document: DetectedDocument?,
         autoCrop: Bool = true,
+        enableDewarp: Bool = true,
         filterMode: DocumentFilterMode = .auto
     ) -> UIImage {
         var processed = image
 
+        // 1. 四邊形透視拉正 (Perspective Correction)
         if autoCrop, let doc = document {
             if let rectified = correctPerspective(image: processed, document: doc) {
                 processed = rectified
             }
         }
 
+        // 2. 25x25 自由曲面 GPU 硬體加速離屏展平 (Metal Dewarping)
+        if enableDewarp {
+            if let dewarped = MetalOffscreenDewarper.shared.dewarpImage(image: processed, dewarpStrength: 1.0) {
+                processed = dewarped
+            }
+        }
+
+        // 3. 專用文件增強濾鏡
         return applyFilter(filterMode, to: processed)
     }
 }
