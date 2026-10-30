@@ -1,7 +1,7 @@
 # AI Agent 專案交接與工程維護手冊 (Agent Handover Document)
 
 > **專案名稱**：vFlat 逆向工程與 iOS 原生重構專案 (`vFlat-iOS`)  
-> **專案版本**：`v1.5.4`（Build `154`）  
+> **專案版本**：`v1.5.5`（Build `155`）  
 > **最後更新時間**：2026-10-30  
 > **遠端儲存庫**：`https://github.com/y41418845-CY/vflat`（預設分支：`master`）  
 > **本地工作目錄**：`g:\我的雲端硬碟\工具程式\vflat\`  
@@ -122,6 +122,7 @@ ios/
    - 專案內所有 `.bat`、`.cmd`、`.sh` 啟動檔**嚴禁包含任何中文字元**，否則 Windows CMD / PowerShell 會因字碼頁（CP950 vs UTF-8）崩潰。
 2. **版本號推進準則**：
    - 凡有任何程式修改、Bug 修復或文件更新，**必須同步推進 `VERSION` 檔案**並於 Commit 訊息中清楚載明。
+   - **版本號全面一致性（重要）**：`VERSION`、`project.yml`（`MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`）、`ios/Info.plist`（`CFBundleShortVersionString` / `CFBundleVersion`）、`README.md` badge、`AGENT_HANDOVER.md` 頂部版本字串，五處必須**同時**更新為相同版本號與 Build 號。歷史上曾發生 `VERSION = v1.5.3` 但 `project.yml` / `Info.plist` 停在 `v1.2.4`、README/交接文件停在 `v1.5.1` 的不一致情況，導致 App 實際顯示版本與儲存庫版本不符。修改版本時請以 `VERSION` 為唯一真相來源，其餘四處跟隨。
 3. **技能目錄實體資料夾要求**：
    - Antigravity 自訂技能目錄必須使用 Windows 實體資料夾，嚴禁使用 Junction 聯結點或符號連結。
 4. **Git Commit 繁體中文約定**：
