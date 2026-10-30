@@ -1,0 +1,35 @@
+name: vFlat
+options:
+  bundleIdPrefix: com.voyagerx.ios
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "16.0"
+
+settings:
+  base:
+    MARKETING_VERSION: "1.5.9"
+    CURRENT_PROJECT_VERSION: "159"
+    SWIFT_VERSION: "5.9"
+
+targets:
+  vFlat:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: ios/Sources/Core
+      - path: ios/Sources/UI
+      - path: ios/Sources/vFlatApp
+    info:
+      path: ios/Info.plist
+      properties:
+        CFBundleDisplayName: "vFlat Scan"
+        NSCameraUsageDescription: "需要相機權限以掃描文件"
+        NSPhotoLibraryUsageDescription: "需要相簿權限以匯入/儲存圖片"
+        NSPhotoLibraryAddUsageDescription: "需要相簿權限以儲存掃描結果"
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "com.voyagerx.ios.vflat"
+        CODE_SIGNING_ALLOWED: NO
