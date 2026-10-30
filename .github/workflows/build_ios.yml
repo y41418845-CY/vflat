@@ -41,21 +41,19 @@ jobs:
       - name: Run Unit Tests
         run: |
           set -o pipefail
-          run_tests() {
-            xcodebuild test \
-              -project vFlat.xcodeproj \
-              -scheme vFlat \
-              -destination "platform=iOS Simulator,name=$1" \
-              CODE_SIGNING_ALLOWED=NO \
-              CODE_SIGNING_REQUIRED=NO \
-              CODE_SIGN_IDENTITY=""
-          }
-
-          # macos-15 runner 不一定預載 iPhone 16 模擬器，失敗時回退 iPhone 15
-          if ! run_tests "iPhone 16"; then
-            echo "::warning::iPhone 16 simulator unavailable, falling back to iPhone 15"
-            run_tests "iPhone 15"
+          DEVICE_NAME=$(xcrun simctl list devices available | grep -E "iPhone (16|15|SE)" | head -n 1 | sed -E 's/^[[:space:]]+//; s/[[:space:]]+\(.*\)$//')
+          if [ -z "$DEVICE_NAME" ]; then
+            DEVICE_NAME="iPhone 16"
           fi
+          echo "Selected simulator: $DEVICE_NAME"
+
+          xcodebuild test \
+            -project vFlat.xcodeproj \
+            -scheme vFlat \
+            -destination "platform=iOS Simulator,name=$DEVICE_NAME" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
 
   build:
     name: Build Unsigned IPA

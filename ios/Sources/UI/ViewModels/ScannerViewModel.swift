@@ -596,14 +596,11 @@ public final class ScannerViewModel: ObservableObject {
         let pageId = page.id
         let filterMode = page.filterMode
 
-        let result = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+        let result = await Task.detached(priority: .userInitiated) { () -> UIImage in
             return DeblurProcessor.shared.deblur(image: currentImage)
         }.value
 
-        guard let deblurred = result else {
-            showError("AI 模糊修復失敗")
-            return
-        }
+        let deblurred = result
 
         let updated = await store.updateProcessed(id: pageId, image: deblurred, filterMode: filterMode)
         if updated {
@@ -629,14 +626,11 @@ public final class ScannerViewModel: ObservableObject {
         let pageId = page.id
         let filterMode = page.filterMode
 
-        let result = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+        let result = await Task.detached(priority: .userInitiated) { () -> UIImage in
             return FingerRemovalProcessor.shared.removeFingers(image: currentImage)
         }.value
 
-        guard let cleaned = result else {
-            showError("AI 手指抹除失敗")
-            return
-        }
+        let cleaned = result
 
         let updated = await store.updateProcessed(id: pageId, image: cleaned, filterMode: filterMode)
         if updated {
@@ -662,14 +656,11 @@ public final class ScannerViewModel: ObservableObject {
         let pageId = page.id
         let filterMode = page.filterMode
 
-        let result = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+        let result = await Task.detached(priority: .userInitiated) { () -> UIImage in
             return HandwritingRemovalProcessor.shared.removeHandwriting(image: currentImage)
         }.value
 
-        guard let cleaned = result else {
-            showError("手寫筆跡消除失敗")
-            return
-        }
+        let cleaned = result
 
         let updated = await store.updateProcessed(id: pageId, image: cleaned, filterMode: filterMode)
         if updated {
@@ -781,14 +772,10 @@ public final class ScannerViewModel: ObservableObject {
             }
 
             // 3. 邊緣手指抹除
-            if let noFingers = FingerRemovalProcessor.shared.removeFingers(image: working) {
-                working = noFingers
-            }
+            working = FingerRemovalProcessor.shared.removeFingers(image: working)
 
             // 4. 文字邊緣與去模糊超解析度增強
-            if let deblurred = DeblurProcessor.shared.deblur(image: working) {
-                working = deblurred
-            }
+            working = DeblurProcessor.shared.deblur(image: working)
 
             return working
         }.value
