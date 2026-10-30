@@ -247,12 +247,12 @@ public final class CameraManager: NSObject, ObservableObject {
             guard camera.isTorchModeSupported(on ? .on : .off) else { return }
             do {
                 try camera.lockForConfiguration()
+                defer { camera.unlockForConfiguration() }
                 if on {
-                    try? camera.setTorchModeOn(level: AVCaptureDevice.maxAvailableTorchLevel)
+                    try camera.setTorchModeOn(level: AVCaptureDevice.maxAvailableTorchLevel)
                 } else {
                     camera.torchMode = .off
                 }
-                camera.unlockForConfiguration()
                 DispatchQueue.main.async {
                     self.isTorchOn = on
                     self.isTorchAvailable = true
@@ -273,11 +273,19 @@ public final class CameraManager: NSObject, ObservableObject {
                 let center = CGPoint(x: 0.5, y: 0.5)
                 if camera.isFocusPointOfInterestSupported {
                     camera.focusPointOfInterest = center
-                    camera.focusMode = .autoFocus
+                    if camera.isFocusModeSupported(.continuousAutoFocus) {
+                        camera.focusMode = .continuousAutoFocus
+                    } else if camera.isFocusModeSupported(.autoFocus) {
+                        camera.focusMode = .autoFocus
+                    }
                 }
                 if camera.isExposurePointOfInterestSupported {
                     camera.exposurePointOfInterest = center
-                    camera.exposureMode = .autoExpose
+                    if camera.isExposureModeSupported(.continuousAutoExposure) {
+                        camera.exposureMode = .continuousAutoExposure
+                    } else if camera.isExposureModeSupported(.autoExpose) {
+                        camera.exposureMode = .autoExpose
+                    }
                 }
                 camera.unlockForConfiguration()
             } catch {

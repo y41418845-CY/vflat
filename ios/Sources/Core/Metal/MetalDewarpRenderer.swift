@@ -158,17 +158,34 @@ public final class MetalDewarpRenderer: NSObject, MTKViewDelegate {
             &cvMetalTexture
         )
 
-        guard status == kCVReturnSuccess,
-              let cvTexture = cvMetalTexture,
+        // 建立失敗時才 flush 快取並重試一次，避免每幀 flush 造成 60fps 下的 CPU 開銷
+        var finalStatus = status
+        var finalTexture = cvMetalTexture
+        if finalStatus != kCVReturnSuccess || finalTexture == nil {
+            CVMetalTextureCacheFlush(textureCache, 0)
+            var retryTexture: CVMetalTexture?
+            finalStatus = CVMetalTextureCacheCreateTextureFromImage(
+                kCFAllocatorDefault,
+                textureCache,
+                pixelBuffer,
+                nil,
+                .bgra8Unorm,
+                width,
+                height,
+                0,
+                &retryTexture
+            )
+            finalTexture = retryTexture
+        }
+
+        guard finalStatus == kCVReturnSuccess,
+              let cvTexture = finalTexture,
               let texture = CVMetalTextureGetTexture(cvTexture) else { return }
 
         lock.lock()
         self.currentCVTexture = cvTexture
         self.currentTexture = texture
         lock.unlock()
-
-        // 釋放上一幀已被替換掉的快取紋理，避免長期累積佔用記憶體
-        CVMetalTextureCacheFlush(textureCache, 0)
     }
 
     /// 設定展平強度與渲染模式 (0: 原圖, 1: 展平)
