@@ -15,7 +15,11 @@ public struct PDFExportSheet: View {
 
     @State private var fileName: String
     @State private var selectedPageSize: PDFPageSize = .a4
+    @State private var selectedOrientation: PDFPageOrientation = .auto
+    @State private var selectedColorMode: PDFColorMode = .color
     @State private var selectedQuality: PDFCompressionQuality = .medium
+    @State private var enablePassword: Bool = false
+    @State private var passwordText: String = ""
     @State private var isExporting: Bool = false
     @State private var shareURL: URL? = nil
     @State private var showingShareActivity: Bool = false
@@ -44,6 +48,18 @@ public struct PDFExportSheet: View {
                             Text(size.rawValue).tag(size)
                         }
                     }
+
+                    Picker("頁面方向", selection: $selectedOrientation) {
+                        ForEach(PDFPageOrientation.allCases) { orientation in
+                            Text(orientation.rawValue).tag(orientation)
+                        }
+                    }
+
+                    Picker("色彩模式", selection: $selectedColorMode) {
+                        ForEach(PDFColorMode.allCases) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
                 }
 
                 Section(header: Text("壓縮品質")) {
@@ -51,6 +67,21 @@ public struct PDFExportSheet: View {
                         ForEach(PDFCompressionQuality.allCases) { q in
                             Text(q.rawValue).tag(q)
                         }
+                    }
+                }
+
+                Section(header: Text("安全與進階設定")) {
+                    Toggle("啟用 PDF 密碼保護", isOn: $enablePassword)
+                    if enablePassword {
+                        SecureField("輸入開啟密碼", text: $passwordText)
+                            .disableAutocorrection(true)
+                    }
+
+                    HStack {
+                        Text("可搜尋 PDF (OCR 文字層)")
+                        Spacer()
+                        Text("自動嵌入")
+                            .foregroundColor(.secondary)
                     }
                 }
 
@@ -111,8 +142,12 @@ public struct PDFExportSheet: View {
 
         let finalName = fileName.hasSuffix(".pdf") ? fileName : "\(fileName).pdf"
         let pageSize = selectedPageSize
+        let orientation = selectedOrientation
+        let colorMode = selectedColorMode
         let quality = selectedQuality
+        let password = enablePassword ? passwordText : nil
         let pageSnapshot = pages
+        let ocrList = pageSnapshot.map { $0.ocrText }
         let store = self.store
 
         Task {
@@ -130,9 +165,13 @@ public struct PDFExportSheet: View {
             let exportedURL = await Task.detached(priority: .userInitiated) {
                 PDFExporter.shared.exportTemporaryPDF(
                     images: images,
+                    ocrTexts: ocrList,
                     fileName: finalName,
                     pageSize: pageSize,
-                    quality: quality
+                    orientation: orientation,
+                    colorMode: colorMode,
+                    quality: quality,
+                    password: password
                 )
             }.value
 

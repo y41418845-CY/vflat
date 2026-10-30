@@ -62,6 +62,24 @@ public struct ScanPage: Identifiable, Codable, Equatable {
     }
 }
 
+/// 垃圾桶（最近刪除）暫存項目，保留 30 天，提供復原與徹底清除
+public struct TrashPage: Identifiable, Codable, Equatable {
+    public var id: UUID { page.id }
+    public let page: ScanPage
+    public let deletedAt: Date
+
+    public init(page: ScanPage, deletedAt: Date = Date()) {
+        self.page = page
+        self.deletedAt = deletedAt
+    }
+
+    /// 剩餘保留天數 (30 天自動清除)
+    public var daysRemaining: Int {
+        let elapsed = Calendar.current.dateComponents([.day], from: deletedAt, to: Date()).day ?? 0
+        return max(0, 30 - elapsed)
+    }
+}
+
 /// 掃描頁面儲存庫：負責 JPEG 落盤、`index.json` 索引、縮圖快取與刪除。
 ///
 /// 所有 UI 狀態變更都在 MainActor；檔案編碼與寫入則丟到背景佇列，
@@ -69,10 +87,12 @@ public struct ScanPage: Identifiable, Codable, Equatable {
 @MainActor
 public final class ScanPageStore: ObservableObject {
     @Published public private(set) var pages: [ScanPage] = []
+    @Published public private(set) var trashPages: [TrashPage] = []
 
     public let rootURL: URL
     private var thumbnailCache: [UUID: UIImage] = [:]
     private let indexFileName = "index.json"
+    private let trashIndexFileName = "trash_index.json"
 
     public init(directoryName: String = "Scans") {
         let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
@@ -90,19 +110,53 @@ public final class ScanPageStore: ObservableObject {
         rootURL.appendingPathComponent(indexFileName)
     }
 
+    private var trashIndexURL: URL {
+        rootURL.appendingPathComponent(trashIndexFileName)
+    }
+
     private func fileURL(_ fileName: String) -> URL {
         rootURL.appendingPathComponent(fileName)
     }
 
-    /// 從磁碟載入索引，並自動剔除檔案已遺失的殘留紀錄
+    /// 從磁碟載入索引與垃圾桶紀錄，並自動過期清除超過 30 天的垃圾檔案
     public func load() {
-        guard let data = try? Data(contentsOf: indexURL),
-              let decoded = try? JSONDecoder().decode([ScanPage].self, from: data) else {
+        if let data = try? Data(contentsOf: indexURL),
+           let decoded = try? JSONDecoder().decode([ScanPage].self, from: data) {
+            pages = decoded.filter { FileManager.default.fileExists(atPath: fileURL($0.processedFileName).path) }
+        } else {
             pages = []
-            return
         }
 
-        pages = decoded.filter { FileManager.default.fileExists(atPath: fileURL($0.processedFileName).path) }
+        // 載入垃圾桶
+        if let trashData = try? Data(contentsOf: trashIndexURL),
+           let decodedTrash = try? JSONDecoder().decode([TrashPage].self, from: trashData) {
+            var validTrash: [TrashPage] = []
+            var expiredTrash: [TrashPage] = []
+
+            for item in decodedTrash {
+                if item.daysRemaining > 0, FileManager.default.fileExists(atPath: fileURL(item.page.processedFileName).path) {
+                    validTrash.append(item)
+                } else {
+                    expiredTrash.append(item)
+                }
+            }
+            trashPages = validTrash
+
+            // 物理清除過期檔案
+            if !expiredTrash.isEmpty {
+                let directory = rootURL
+                Task.detached(priority: .utility) {
+                    for item in expiredTrash {
+                        for name in [item.page.processedFileName, item.page.rawFileName].compactMap({ $0 }) {
+                            try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+                        }
+                    }
+                }
+                persistTrashIndex()
+            }
+        } else {
+            trashPages = []
+        }
     }
 
     private func persistIndex() {
@@ -118,6 +172,23 @@ public final class ScanPageStore: ObservableObject {
                 try data.write(to: url, options: .atomic)
             } catch {
                 print("[ScanPageStore] 索引寫入失敗: \(error)")
+            }
+        }
+    }
+
+    private func persistTrashIndex() {
+        let snapshot = trashPages
+        let url = trashIndexURL
+        let directory = rootURL
+        Task.detached(priority: .utility) {
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let data = try encoder.encode(snapshot)
+                try data.write(to: url, options: .atomic)
+            } catch {
+                print("[ScanPageStore] 垃圾桶索引寫入失敗: \(error)")
             }
         }
     }
@@ -217,35 +288,80 @@ public final class ScanPageStore: ObservableObject {
         persistIndex()
     }
 
+    /// 將指定頁面移入垃圾桶 (最近刪除，保留 30 天)
     public func delete(id: UUID) {
         guard let index = pages.firstIndex(where: { $0.id == id }) else { return }
         let page = pages.remove(at: index)
         thumbnailCache.removeValue(forKey: id)
 
-        let directory = rootURL
-        let names = [page.processedFileName, page.rawFileName].compactMap { $0 }
-        Task.detached(priority: .utility) {
-            for name in names {
-                try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
-            }
-        }
+        let trashItem = TrashPage(page: page)
+        trashPages.insert(trashItem, at: 0)
+
         persistIndex()
+        persistTrashIndex()
     }
 
+    /// 將所有頁面移入垃圾桶 (最近刪除，保留 30 天)
     public func deleteAll() {
         let allPages = pages
         pages = []
         thumbnailCache.removeAll()
 
+        let now = Date()
+        let newTrash = allPages.map { TrashPage(page: $0, deletedAt: now) }
+        trashPages.insert(contentsOf: newTrash, at: 0)
+
+        persistIndex()
+        persistTrashIndex()
+    }
+
+    /// 從垃圾桶還原指定頁面
+    public func restore(id: UUID) {
+        guard let index = trashPages.firstIndex(where: { $0.id == id }) else { return }
+        let trashItem = trashPages.remove(at: index)
+        pages.append(trashItem.page)
+
+        persistIndex()
+        persistTrashIndex()
+    }
+
+    /// 從垃圾桶全部還原
+    public func restoreAll() {
+        let restored = trashPages.map { $0.page }
+        trashPages.removeAll()
+        pages.append(contentsOf: restored)
+
+        persistIndex()
+        persistTrashIndex()
+    }
+
+    /// 徹底永久刪除指定垃圾桶項目 (無法撤銷)
+    public func permanentlyDelete(id: UUID) {
+        guard let index = trashPages.firstIndex(where: { $0.id == id }) else { return }
+        let item = trashPages.remove(at: index)
+        let directory = rootURL
+        let names = [item.page.processedFileName, item.page.rawFileName].compactMap { $0 }
+        Task.detached(priority: .utility) {
+            for name in names {
+                try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
+            }
+        }
+        persistTrashIndex()
+    }
+
+    /// 徹底清空垃圾桶 (全部永久抹除)
+    public func emptyTrash() {
+        let allItems = trashPages
+        trashPages.removeAll()
         let directory = rootURL
         Task.detached(priority: .utility) {
-            for page in allPages {
-                for name in [page.processedFileName, page.rawFileName].compactMap({ $0 }) {
+            for item in allItems {
+                for name in [item.page.processedFileName, item.page.rawFileName].compactMap({ $0 }) {
                     try? FileManager.default.removeItem(at: directory.appendingPathComponent(name))
                 }
             }
         }
-        persistIndex()
+        persistTrashIndex()
     }
 
     // MARK: - 讀取

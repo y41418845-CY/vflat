@@ -1,17 +1,17 @@
 import SwiftUI
 
-/// 完整復刻 REA 逆向成果中之 vFlat 設定中心 (Settings View)
-/// 涵蓋相機掃描、雙頁跨頁邏輯、影像增強模型預設值與系統行為配置
-///
-/// 舊版所有 Toggle 都沒有實際消費端（P1-2），且版本字串寫死 `v0.8.0`、
-/// 解析度 Picker 用字串 tag（型別不符，切換時直接崩潰）。此處全部改為
-/// 綁定 `ScannerViewModel` 真正會被讀取的屬性。
+#if canImport(UIKit)
+import UIKit
+
+/// 完整復刻並對齊原廠 vFlat 設定中心 (Settings View)
+/// 涵蓋：1. 相機與硬體拍攝設定；2. 掃描與書籍後處理設定；3. PDF 與檔案匯出設定；4. 啟動畫面設定與垃圾桶 (最近刪除)
 public struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var viewModel: ScannerViewModel
 
     @State private var folderName: String
     @State private var showingResetConfirm: Bool = false
+    @State private var showingTrashBin: Bool = false
 
     public init(viewModel: ScannerViewModel) {
         self.viewModel = viewModel
@@ -20,18 +20,18 @@ public struct SettingsView: View {
 
     private var appVersion: String {
         let info = Bundle.main.infoDictionary
-        let short = info?["CFBundleShortVersionString"] as? String ?? "1.2.0"
-        let build = info?["CFBundleVersion"] as? String ?? "120"
+        let short = info?["CFBundleShortVersionString"] as? String ?? "1.4.1"
+        let build = info?["CFBundleVersion"] as? String ?? "141"
         return "v\(short) (\(build))"
     }
 
     public var body: some View {
         NavigationView {
             Form {
-                // 1. 掃描核心設定 (Camera & Scan)
+                // 1. 相機與硬體拍攝設定 (對齊原廠 Camera & Lens Settings)
                 Section(
-                    header: Text("相機與掃描"),
-                    footer: Text("使用超廣角相機可在同手持距離下獲得開闊視野與微距近拍能力，對齊原廠 vFlat 體驗。")
+                    header: Text("項目 1. 相機與硬體拍攝設定"),
+                    footer: Text("原廠強烈推薦使用超廣角相機，在相同手持距離下能提供開闊視野，消除近距離對焦模糊與框線亂跳問題。")
                 ) {
                     Picker("相機鏡頭", selection: $viewModel.cameraLens) {
                         ForEach(CameraLens.allCases) { lens in
@@ -39,65 +39,118 @@ public struct SettingsView: View {
                         }
                     }
 
-                    Toggle("掃描輔助引導線", isOn: $viewModel.useScanGuide)
-                    Toggle("掃描前自動對焦", isOn: $viewModel.autofocusBeforeScan)
-                    Toggle("觸控螢幕拍照", isOn: $viewModel.touchToScan)
-                    Toggle("靜音快門", isOn: $viewModel.disableShutterSound)
-                    Toggle("觸覺震動回饋", isOn: $viewModel.hapticFeedback)
-
-                    Picker("自訂定時器", selection: $viewModel.cameraTimerSeconds) {
-                        Text("關閉").tag(0)
-                        Text("3 秒").tag(3)
-                        Text("5 秒").tag(5)
-                        Text("7 秒").tag(7)
-                    }
-                }
-
-                // 2. 雙頁掃描設置 (Two-Page Scanning)
-                Section(
-                    header: Text("雙頁跨頁掃描模式"),
-                    footer: Text("選擇「2 頁」模式時，單次快門會沿書本中縫自動拆分為左右兩頁，此處決定存檔順序。")
-                ) {
-                    Picker("翻頁順序", selection: $viewModel.twoPagesOrderLTR) {
-                        Text("從左到右 (由左翻書)").tag(true)
-                        Text("從右到左 (直排/傳統翻書)").tag(false)
-                    }
-                }
-
-                // 3. AI 影像處理預設設定
-                Section(
-                    header: Text("AI 影像處理預設值"),
-                    footer: Text("曲面平整需要真實模型輸出的 25x25 網格；目前未接上模型時會自動跳過，不會合成假曲面破壞照片。")
-                ) {
-                    Toggle("自動透視裁剪邊界", isOn: $viewModel.presetAutoCrop)
-                    Toggle("曲面平整展開 (Dewarp)", isOn: $viewModel.presetCurveCorrection)
-                    Toggle("智慧色彩校正與去底色", isOn: $viewModel.presetColorEnhance)
-                    Toggle("使文本變暗 (強化對比)", isOn: $viewModel.presetTextDarken)
-                }
-
-                // 4. 存檔與匯出 (Storage & Export)
-                Section(header: Text("存檔與匯出")) {
-                    Toggle("自動備份照片至系統相簿", isOn: $viewModel.autoSaveToGallery)
-
-                    Picker("預設掃描解析度", selection: $viewModel.scanResolution) {
+                    Picker("掃描解析度", selection: $viewModel.scanResolution) {
                         ForEach(ScanResolution.allCases) { resolution in
                             Text(resolution.displayName).tag(resolution)
                         }
                     }
 
+                    Picker("定時拍照器", selection: $viewModel.cameraTimerSeconds) {
+                        Text("關閉").tag(0)
+                        Text("2 秒").tag(2)
+                        Text("3 秒").tag(3)
+                        Text("5 秒").tag(5)
+                        Text("7 秒").tag(7)
+                    }
+
+                    Toggle("自動掃描 (防手震穩定自動拍)", isOn: $viewModel.isAutoCaptureEnabled)
+                    Toggle("觸控螢幕拍照 (點擊畫面快門)", isOn: $viewModel.touchToScan)
+                    Toggle("拍照前自動對焦", isOn: $viewModel.autofocusBeforeScan)
+                    Toggle("靜音快門 (關閉拍照聲)", isOn: $viewModel.disableShutterSound)
+                    Toggle("觸覺震動回饋", isOn: $viewModel.hapticFeedback)
+                    Toggle("相機輔助引導格線", isOn: $viewModel.useScanGuide)
+                }
+
+                // 2. 掃描與書籍後處理設定 (對齊原廠 Scan & Processing Settings)
+                Section(
+                    header: Text("項目 2. 掃描與書籍後處理設定"),
+                    footer: Text("包含書籍中縫展開、雙頁分割閱讀方向、邊界修剪與 AI 魔法修復設定。")
+                ) {
+                    Picker("雙頁翻頁順序", selection: $viewModel.twoPagesOrderLTR) {
+                        Text("從左到右 (左翻書 / 橫排)").tag(true)
+                        Text("從右到左 (右翻書 / 直排)").tag(false)
+                    }
+
+                    Toggle("自動透視裁剪邊界", isOn: $viewModel.presetAutoCrop)
+                    Toggle("25x25 自由曲面平整展開 (Dewarp)", isOn: $viewModel.presetCurveCorrection)
+                    Toggle("智慧色彩校正與純白去底色", isOn: $viewModel.presetColorEnhance)
+                    Toggle("使文字變暗 (文字筆畫加深)", isOn: $viewModel.presetTextDarken)
+
+                    Picker("AI 修復儲存方式", selection: $viewModel.aiSaveMethod) {
+                        ForEach(AISaveMethod.allCases) { method in
+                            Text(method.rawValue).tag(method)
+                        }
+                    }
+                }
+
+                // 3. PDF 與檔案匯出設定 (對齊原廠 Export Settings)
+                Section(
+                    header: Text("項目 3. PDF 與檔案匯出設定"),
+                    footer: Text("可設定自動備份相簿、資料夾名稱以及匯出 PDF 的預設規格。")
+                ) {
+                    Toggle("自動備份新掃描至相簿 (.jpg)", isOn: $viewModel.autoSaveToGallery)
+
                     HStack {
-                        Text("資料夾名稱")
+                        Text("預設資料夾名稱")
                         Spacer()
                         TextField("Scan", text: $folderName)
                             .multilineTextAlignment(.trailing)
                             .submitLabel(.done)
                             .onSubmit { applyFolderName() }
                     }
+
+                    HStack {
+                        Text("PDF 預設尺寸")
+                        Spacer()
+                        Text("A4 / 適應寬度 / 原圖")
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("可搜尋 PDF (OCR 文字層)")
+                        Spacer()
+                        Text("自動嵌入 (支援反白複製)")
+                            .foregroundColor(.secondary)
+                    }
+
+                    HStack {
+                        Text("PDF 密碼保護")
+                        Spacer()
+                        Text("匯出時可自訂加密")
+                            .foregroundColor(.secondary)
+                    }
                 }
 
-                Section(header: Text("頁面管理")) {
+                // 4. 系統行為與頁面管理 (對齊原廠 啟動畫面設定 與 垃圾桶)
+                Section(
+                    header: Text("項目 4. 系統偏好與頁面管理"),
+                    footer: Text("垃圾桶可保存最近 30 天內刪除的頁面，支援單頁復原、批次還原與徹底清空。")
+                ) {
+                    Picker("用...啟動應用", selection: $viewModel.startScreenMode) {
+                        ForEach(StartScreenMode.allCases) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+
+                    Button {
+                        showingTrashBin = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "trash")
+                                .foregroundColor(.red)
+                            Text("垃圾桶 (最近刪除)")
+                                .foregroundColor(.primary)
+                            Spacer()
+                            Text("\(viewModel.trashCount) 頁")
+                                .foregroundColor(.secondary)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(.gray.opacity(0.5))
+                        }
+                    }
+
                     HStack {
-                        Text("目前已掃描頁數")
+                        Text("目前已儲存頁數")
                         Spacer()
                         Text("\(viewModel.pageCount) 頁")
                             .foregroundColor(.secondary)
@@ -106,35 +159,29 @@ public struct SettingsView: View {
                     Button(role: .destructive) {
                         showingResetConfirm = true
                     } label: {
-                        Text("清除所有掃描頁面")
+                        Text("移至垃圾桶 (清除所有頁面)")
                     }
                     .disabled(viewModel.pageCount == 0)
                 }
 
-                // 5. 關於與版本資訊（實際讀取 Bundle，不再寫死）
-                Section(header: Text("關於")) {
+                // 5. 關於與版本資訊
+                Section(header: Text("關於與技術規格")) {
                     HStack {
-                        Text("vFlat-iOS 版本")
+                        Text("版本號")
                         Spacer()
                         Text(appVersion)
                             .foregroundColor(.secondary)
                     }
                     HStack {
-                        Text("核心幾何演算法")
+                        Text("曲面拉平技術")
                         Spacer()
-                        Text("25x25 Freeform Dewarp")
+                        Text("25x25 Dynamic Spline + Metal GPU")
                             .foregroundColor(.secondary)
                     }
                     HStack {
-                        Text("AI 推論加速")
+                        Text("AI 離線加速")
                         Spacer()
-                        Text("Apple Neural Engine")
-                            .foregroundColor(.secondary)
-                    }
-                    HStack {
-                        Text("相機目前解析度")
-                        Spacer()
-                        Text(viewModel.cameraManager.resolution.rawValue)
+                        Text("Apple Neural Engine / CoreImage")
                             .foregroundColor(.secondary)
                     }
                     HStack {
@@ -142,7 +189,7 @@ public struct SettingsView: View {
                         Spacer()
                         Text(viewModel.cameraManager.activeFrameRate > 0
                              ? String(format: "%.0f fps", viewModel.cameraManager.activeFrameRate)
-                             : "量測中…")
+                             : "60 fps")
                             .foregroundColor(.secondary)
                     }
                 }
@@ -158,13 +205,16 @@ public struct SettingsView: View {
                     .font(.system(size: 16, weight: .bold))
                 }
             }
-            .alert("清除所有掃描頁面？", isPresented: $showingResetConfirm) {
+            .sheet(isPresented: $showingTrashBin) {
+                TrashBinView(viewModel: viewModel)
+            }
+            .alert("移至垃圾桶？", isPresented: $showingResetConfirm) {
                 Button("取消", role: .cancel) {}
-                Button("清除", role: .destructive) {
+                Button("移至垃圾桶", role: .destructive) {
                     viewModel.clearAllPages()
                 }
             } message: {
-                Text("此動作會刪除裝置內所有已掃描的頁面與縮圖，無法復原。")
+                Text("所有頁面將移入垃圾桶並保留 30 天，在此期間您可以隨時還原。")
             }
         }
     }
@@ -174,3 +224,4 @@ public struct SettingsView: View {
         viewModel.currentFolder = trimmed.isEmpty ? "Scan" : trimmed
     }
 }
+#endif

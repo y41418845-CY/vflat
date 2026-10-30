@@ -33,13 +33,15 @@ public enum ScanResolution: String, CaseIterable, Identifiable, Sendable {
 public enum CameraLens: String, CaseIterable, Identifiable, Sendable {
     case ultraWide = "ultraWide"
     case wideAngle = "wideAngle"
+    case telephoto = "telephoto"
 
     public var id: String { rawValue }
 
     public var displayName: String {
         switch self {
-        case .ultraWide: return "超廣角相機 (推薦)"
+        case .ultraWide: return "超廣角相機 (推薦 0.5x)"
         case .wideAngle: return "一般相機 (1x)"
+        case .telephoto: return "長焦相機 (2x/3x)"
         }
     }
 
@@ -47,6 +49,7 @@ public enum CameraLens: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .ultraWide: return .builtInUltraWideCamera
         case .wideAngle: return .builtInWideAngleCamera
+        case .telephoto: return .builtInTelephotoCamera
         }
     }
 }
@@ -177,6 +180,9 @@ public final class CameraManager: NSObject, ObservableObject {
         if lens == .ultraWide, let ultraWideCamera = AVCaptureDevice.default(.builtInUltraWideCamera, for: .video, position: .back) {
             chosenDevice = ultraWideCamera
             effectiveLens = .ultraWide
+        } else if lens == .telephoto, let telephotoCamera = AVCaptureDevice.default(.builtInTelephotoCamera, for: .video, position: .back) {
+            chosenDevice = telephotoCamera
+            effectiveLens = .telephoto
         } else if let wideCamera = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) {
             chosenDevice = wideCamera
             effectiveLens = .wideAngle

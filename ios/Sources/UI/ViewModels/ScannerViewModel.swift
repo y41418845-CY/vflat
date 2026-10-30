@@ -15,6 +15,22 @@ public enum ScanMode: String, CaseIterable, Identifiable {
     public var id: String { rawValue }
 }
 
+/// 啟動應用首頁偏好 (對齊原廠 setting_start_screen)
+public enum StartScreenMode: String, CaseIterable, Identifiable {
+    case camera = "相機取景 (秒開即掃)"
+    case library = "資料庫 / 首頁列表"
+
+    public var id: String { rawValue }
+}
+
+/// AI 修復儲存方式 (對齊原廠 ai_feature_save_method)
+public enum AISaveMethod: String, CaseIterable, Identifiable {
+    case overwrite = "覆蓋此頁面"
+    case saveAsNew = "另存為新頁面"
+
+    public var id: String { rawValue }
+}
+
 /// 相簿批次匯入時可調整的處理選項
 public struct ImportOptions {
     public var autoCrop: Bool
@@ -91,6 +107,14 @@ public final class ScannerViewModel: ObservableObject {
     @Published public var presetColorEnhance: Bool = true
     @Published public var presetTextDarken: Bool = true
     @Published public var autoSaveToGallery: Bool = false
+    @Published public var aiSaveMethod: AISaveMethod = .overwrite
+
+    /// 啟動畫面設定（相機取景 vs 資料庫首頁）
+    @Published public var startScreenMode: StartScreenMode = .camera {
+        didSet {
+            UserDefaults.standard.set(startScreenMode.rawValue, forKey: "vflat_start_screen_mode")
+        }
+    }
 
     @Published public var scanResolution: ScanResolution = .ultraHD4K {
         didSet {
@@ -141,6 +165,15 @@ public final class ScannerViewModel: ObservableObject {
         bindPageStore()
         bindHardware()
         restoreLastPage()
+
+        // 讀取啟動畫面偏好設定
+        if let savedMode = UserDefaults.standard.string(forKey: "vflat_start_screen_mode"),
+           let mode = StartScreenMode(rawValue: savedMode) {
+            self.startScreenMode = mode
+            if mode == .library && pageStore.count > 0 {
+                self.showingDocumentDetail = true
+            }
+        }
     }
 
     // MARK: - 初始化輔助
@@ -849,6 +882,29 @@ public final class ScannerViewModel: ObservableObject {
         lastThumbnail = nil
         lastOCRText = nil
         detectedDocument = nil
+    }
+
+    // MARK: - 垃圾桶（最近刪除）管理
+
+    public var trashPages: [TrashPage] { pageStore.trashPages }
+    public var trashCount: Int { pageStore.trashPages.count }
+
+    public func restorePageFromTrash(id: UUID) {
+        pageStore.restore(id: id)
+        restoreLastPage()
+    }
+
+    public func restoreAllFromTrash() {
+        pageStore.restoreAll()
+        restoreLastPage()
+    }
+
+    public func permanentlyDeleteTrashPage(id: UUID) {
+        pageStore.permanentlyDelete(id: id)
+    }
+
+    public func emptyTrash() {
+        pageStore.emptyTrash()
     }
 
     // MARK: - OCR
