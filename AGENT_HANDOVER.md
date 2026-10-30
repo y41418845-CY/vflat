@@ -1,8 +1,8 @@
 # AI Agent 專案交接與工程維護手冊 (Agent Handover Document)
 
 > **專案名稱**：vFlat 逆向工程與 iOS 原生重構專案 (`vFlat-iOS`)  
-> **專案版本**：`v1.6.4`（Build `164`）  
-> **最後更新時間**：2026-10-30  
+> **專案版本**：`v1.6.5`（Build `165`）  
+> **最後更新時間**：2026-10-31  
 > **遠端儲存庫**：`https://github.com/y41418845-CY/vflat`（當前分支：`feature/authentic-replica-ui`，預設分支：`master`）  
 > **本地工作目錄**：`g:\我的雲端硬碟\工具程式\vflat\`  
 > **接手重點提示**：請新進 AI Agent 優先閱讀本手冊與全域規範。本專案嚴格遵守「無外掛純原生（Swift / Metal / Vision / PDFKit）」、「零廣告零聯網 100% 離線隱私」與「60fps 零延遲」標準；**CI 建置路徑採用 GitHub Actions (macOS-15 runner + XcodeGen)**。

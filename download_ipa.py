@@ -30,6 +30,14 @@ def get_token():
             return line.split('=', 1)[1].strip()
     raise RuntimeError("Cannot find password in git credentials")
 
+class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new_req:
+            new_req.headers = {k: v for k, v in new_req.headers.items() if k.lower() != 'authorization'}
+            new_req.unredirected_hdrs = {k: v for k, v in new_req.unredirected_hdrs.items() if k.lower() != 'authorization'}
+        return new_req
+
 def main():
     token = get_token()
     headers = {
@@ -93,8 +101,9 @@ def main():
     if target_art:
         dl_url = target_art['archive_download_url']
         print(f"[INFO] Downloading artifact from {dl_url}...", flush=True)
+        opener = urllib.request.build_opener(SafeRedirectHandler)
         req = urllib.request.Request(dl_url, headers=headers)
-        with urllib.request.urlopen(req) as resp:
+        with opener.open(req) as resp:
             zip_content = resp.read()
 
         print(f"[INFO] Received {len(zip_content)} bytes. Extracting vFlat.ipa...", flush=True)
