@@ -123,7 +123,11 @@ public final class ScannerViewModel: ObservableObject {
     private var errorDismissTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
 
-    public init(pageStore: ScanPageStore = ScanPageStore()) {
+    public convenience init() {
+        self.init(pageStore: ScanPageStore())
+    }
+
+    public init(pageStore: ScanPageStore) {
         self.pageStore = pageStore
         setupDetector()
         bindPageStore()
