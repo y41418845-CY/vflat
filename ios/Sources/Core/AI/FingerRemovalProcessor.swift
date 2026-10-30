@@ -26,10 +26,9 @@ public final class FingerRemovalProcessor {
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let bytesPerPixel = 4
         let bytesPerRow = width * bytesPerPixel
-        var pixelData = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
 
         guard let context = CGContext(
-            data: &pixelData,
+            data: nil,
             width: width,
             height: height,
             bitsPerComponent: 8,
@@ -39,6 +38,9 @@ public final class FingerRemovalProcessor {
         ) else { return image }
 
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        guard let base = context.data else { return image }
+        let pixelData = base.assumingMemoryBound(to: UInt8.self)
 
         // 1. 建立手指遮罩 (二值化 Mask: 255 代表手指，0 代表正常紙張或文字)
         var mask = [UInt8](repeating: 0, count: width * height)

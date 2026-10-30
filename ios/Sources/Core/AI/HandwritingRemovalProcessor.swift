@@ -26,10 +26,9 @@ public final class HandwritingRemovalProcessor {
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let bytesPerPixel = 4
         let bytesPerRow = width * bytesPerPixel
-        var pixelData = [UInt8](repeating: 0, count: width * height * bytesPerPixel)
 
         guard let context = CGContext(
-            data: &pixelData,
+            data: nil,
             width: width,
             height: height,
             bitsPerComponent: 8,
@@ -39,6 +38,9 @@ public final class HandwritingRemovalProcessor {
         ) else { return image }
 
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+
+        guard let base = context.data else { return image }
+        let pixelData = base.assumingMemoryBound(to: UInt8.self)
 
         // 1. 取樣全圖紙張底色平均值
         var sampleR = 0, sampleG = 0, sampleB = 0, sampleCount = 0
