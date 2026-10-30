@@ -21,7 +21,8 @@ public struct SplitBookPages {
 }
 
 /// 負責在拍攝跨頁書本時，自動沿書籍中縫 (Book Spine/Crease) 偵測並分割為兩頁獨立文件
-public final class BookPageSplitter {
+/// 無可變狀態，可安全跨執行緒共用。
+public final class BookPageSplitter: @unchecked Sendable {
     public static let shared = BookPageSplitter()
 
     private init() {}
@@ -30,21 +31,24 @@ public final class BookPageSplitter {
     /// - Parameters:
     ///   - image: 拍下之跨頁書籍影像 (通常為 4:3 或 16:9 橫向展開)
     ///   - splitRatio: 中縫 X 軸相對比例 (預設 0.50，中線)
-    ///   - spineMarginRatio: 中縫裝訂裝線微調裁除比率 (0.015 代表中縫各向左右裁除 1.5% 避免陰影或裝訂線殘留)
+    ///   - spineMarginRatio: 中縫裝訂裝線微調裁除比率 (0.012 代表中縫各向左右裁除 1.2% 避免陰影或裝訂線殘留)
     /// - Returns: 分割完成之左右兩頁獨立圖片
     public func splitPage(
         image: UIImage,
         splitRatio: CGFloat = 0.50,
         spineMarginRatio: CGFloat = 0.012
     ) -> SplitBookPages? {
-        guard let cgImage = image.cgImage else { return nil }
+        // 先正規化方向，避免 imageOrientation 造成裁剪位置左右顛倒
+        guard let cgImage = BookPageSplitter.normalizedCGImage(image) else { return nil }
 
         let fullWidth = CGFloat(cgImage.width)
         let fullHeight = CGFloat(cgImage.height)
+        guard fullWidth > 2, fullHeight > 1 else { return nil }
 
         // 計算中縫切線像素位置
-        let splitX = fullWidth * max(0.2, min(0.8, splitRatio))
-        let marginPixels = fullWidth * spineMarginRatio
+        let clampedRatio = max(0.2, min(0.8, splitRatio))
+        let splitX = (fullWidth * clampedRatio).rounded()
+        let marginPixels = (fullWidth * max(0.0, min(0.05, spineMarginRatio))).rounded()
 
         // 1. 左頁裁剪範圍 (從 0 到 splitX - margin)
         let leftWidth = max(1.0, splitX - marginPixels)
@@ -55,13 +59,13 @@ public final class BookPageSplitter {
         let rightWidth = max(1.0, fullWidth - rightX)
         let rightRect = CGRect(x: rightX, y: 0, width: rightWidth, height: fullHeight)
 
-        guard let leftCG = cgImage.cropping(to: leftRect),
-              let rightCG = cgImage.cropping(to: rightRect) else {
+        guard let leftCG = cgImage.cropping(to: leftRect.integral),
+              let rightCG = cgImage.cropping(to: rightRect.integral) else {
             return nil
         }
 
-        let leftImg = UIImage(cgImage: leftCG, scale: image.scale, orientation: image.imageOrientation)
-        let rightImg = UIImage(cgImage: rightCG, scale: image.scale, orientation: image.imageOrientation)
+        let leftImg = UIImage(cgImage: leftCG, scale: 1.0, orientation: .up)
+        let rightImg = UIImage(cgImage: rightCG, scale: 1.0, orientation: .up)
 
         return SplitBookPages(leftPage: leftImg, rightPage: rightImg)
     }
@@ -70,43 +74,46 @@ public final class BookPageSplitter {
     /// - Parameter image: 待分析影像
     /// - Returns: 偵測到的中縫 X 軸比例 (若對比不明顯則預設回傳 0.50)
     public func detectSpineRatio(image: UIImage) -> CGFloat {
-        guard let cgImage = image.cgImage else { return 0.50 }
+        guard let cgImage = BookPageSplitter.normalizedCGImage(image) else { return 0.50 }
 
         let width = cgImage.width
         let height = cgImage.height
         guard width > 200, height > 200 else { return 0.50 }
 
-        // 在中央 40% ~ 60% 區間進行像素抽樣，尋找垂直平均灰度之局部極小值 (最暗的中縫溝槽)
-        let minCol = Int(Double(width) * 0.42)
-        let maxCol = Int(Double(width) * 0.58)
+        // 在中央 42% ~ 58% 區間進行像素抽樣，尋找垂直平均灰度之局部極小值 (最暗的中縫溝槽)
+        let minCol = max(1, Int(Double(width) * 0.42))
+        let maxCol = min(width - 2, Int(Double(width) * 0.58))
+        guard minCol < maxCol else { return 0.50 }
 
-        // 建立微縮點陣圖加速分析
+        // 微縮點陣圖加速分析：寬度保持原比例，高度固定抽樣 100 列
         let sampleHeight = 100
         let sampleWidth = width
         let bytesPerRow = sampleWidth
-        var grayData = [UInt8](repeating: 0, count: sampleWidth * sampleHeight)
 
+        // 以 data: nil 讓 CoreGraphics 自行配置緩衝區，避免 `CGContext(data: &array)` 的懸空指標風險
         guard let context = CGContext(
-            data: &grayData,
+            data: nil,
             width: sampleWidth,
             height: sampleHeight,
             bitsPerComponent: 8,
             bytesPerRow: bytesPerRow,
             space: CGColorSpaceCreateDeviceGray(),
             bitmapInfo: CGImageAlphaInfo.none.rawValue
-        ) else {
+        ), let base = context.data else {
             return 0.50
         }
 
+        context.interpolationQuality = .low
         context.draw(cgImage, in: CGRect(x: 0, y: 0, width: sampleWidth, height: sampleHeight))
 
+        let pixels = base.assumingMemoryBound(to: UInt8.self)
         var minIntensitySum = Int.max
         var bestCol = width / 2
 
         for col in minCol...maxCol {
             var colSum = 0
             for row in 0..<sampleHeight {
-                colSum += Int(grayData[row * sampleWidth + col])
+                colSum += Int(pixels[row * bytesPerRow + col])
             }
             if colSum < minIntensitySum {
                 minIntensitySum = colSum
@@ -115,6 +122,24 @@ public final class BookPageSplitter {
         }
 
         return CGFloat(bestCol) / CGFloat(width)
+    }
+
+    // MARK: - Helpers
+
+    /// 將任意方向的 UIImage 正規化為 `.up` 的 CGImage
+    static func normalizedCGImage(_ image: UIImage) -> CGImage? {
+        if image.imageOrientation == .up, let cgImage = image.cgImage {
+            return cgImage
+        }
+
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = image.scale
+        format.opaque = false
+        format.preferredRange = .standard
+        let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: image.size))
+        }.cgImage
     }
 }
 #endif

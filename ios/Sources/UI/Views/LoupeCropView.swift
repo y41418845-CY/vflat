@@ -21,7 +21,11 @@ public struct LoupeCropView: View {
     @State private var bl: CGPoint
 
     @State private var activeDraggingCorner: CornerPointPosition? = nil
-    @State private var dragCurrentPosition: CGPoint = .zero
+
+    /// 拖曳手勢使用的具名座標系。
+    /// 舊版直接使用預設 `.local`，但角點控制點是以 `.position()` 放在全螢幕 ZStack 內，
+    /// 手勢座標會隨控制點自身位移而漂移，導致拖曳時角點「追不上手指」甚至反向跳動。
+    private let cropSpaceName = "LoupeCropSpace"
 
     public init(
         image: UIImage,
@@ -91,6 +95,7 @@ public struct LoupeCropView: View {
                             .position(x: min(max(activeScreenPoint.x, 60), frame.width - 60), y: max(activeScreenPoint.y - 75, 75))
                     }
                 }
+                .coordinateSpace(name: cropSpaceName)
             }
 
             // 頂部導航控制列
@@ -171,11 +176,15 @@ public struct LoupeCropView: View {
                 .stroke(Color(red: 0.22, green: 0.85, blue: 0.45), lineWidth: 3.5)
                 .frame(width: 22, height: 22)
         }
+        // 只讓角點本身（含 44pt 觸控熱區）接收手勢，避免四個全螢幕圖層互相搶事件
+        .frame(width: 44, height: 44)
+        .contentShape(Circle())
         .position(screenPoint)
         .gesture(
-            DragGesture(minimumDistance: 0)
+            DragGesture(minimumDistance: 0, coordinateSpace: .named(cropSpaceName))
                 .onChanged { value in
                     activeDraggingCorner = position
+                    guard renderSize.width > 0, renderSize.height > 0 else { return }
                     let clampedX = max(origin.x, min(origin.x + renderSize.width, value.location.x))
                     let clampedY = max(origin.y, min(origin.y + renderSize.height, value.location.y))
                     let normX = (clampedX - origin.x) / renderSize.width

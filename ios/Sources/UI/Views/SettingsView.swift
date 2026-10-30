@@ -2,12 +2,27 @@ import SwiftUI
 
 /// 完整復刻 REA 逆向成果中之 vFlat 設定中心 (Settings View)
 /// 涵蓋相機掃描、雙頁跨頁邏輯、影像增強模型預設值與系統行為配置
+///
+/// 舊版所有 Toggle 都沒有實際消費端（P1-2），且版本字串寫死 `v0.8.0`、
+/// 解析度 Picker 用字串 tag（型別不符，切換時直接崩潰）。此處全部改為
+/// 綁定 `ScannerViewModel` 真正會被讀取的屬性。
 public struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var viewModel: ScannerViewModel
 
+    @State private var folderName: String
+    @State private var showingResetConfirm: Bool = false
+
     public init(viewModel: ScannerViewModel) {
         self.viewModel = viewModel
+        self._folderName = State(initialValue: viewModel.currentFolder)
+    }
+
+    private var appVersion: String {
+        let info = Bundle.main.infoDictionary
+        let short = info?["CFBundleShortVersionString"] as? String ?? "1.2.0"
+        let build = info?["CFBundleVersion"] as? String ?? "120"
+        return "v\(short) (\(build))"
     }
 
     public var body: some View {
@@ -30,37 +45,69 @@ public struct SettingsView: View {
                 }
 
                 // 2. 雙頁掃描設置 (Two-Page Scanning)
-                Section(header: Text("雙頁跨頁掃描模式"), footer: Text("選擇掃描雙頁書本時，單次快門自動拆分為左右兩頁的存檔順序。")) {
+                Section(
+                    header: Text("雙頁跨頁掃描模式"),
+                    footer: Text("選擇「2 頁」模式時，單次快門會沿書本中縫自動拆分為左右兩頁，此處決定存檔順序。")
+                ) {
                     Picker("翻頁順序", selection: $viewModel.twoPagesOrderLTR) {
                         Text("從左到右 (由左翻書)").tag(true)
                         Text("從右到左 (直排/傳統翻書)").tag(false)
                     }
                 }
 
-                // 3. AI 影像處理預設設定 (Image Processing & Models)
-                Section(header: Text("AI 影像處理預設值"), footer: Text("對應 vFlat 原版深度學習管線：自動透視切邊、25x25 曲面平整、手指塗抹修復與文字清晰化。")) {
-                    Toggle("自動透視裁剪邊界 (PPTP)", isOn: $viewModel.presetAutoCrop)
+                // 3. AI 影像處理預設設定
+                Section(
+                    header: Text("AI 影像處理預設值"),
+                    footer: Text("曲面平整需要真實模型輸出的 25x25 網格；目前未接上模型時會自動跳過，不會合成假曲面破壞照片。")
+                ) {
+                    Toggle("自動透視裁剪邊界", isOn: $viewModel.presetAutoCrop)
                     Toggle("曲面平整展開 (Dewarp)", isOn: $viewModel.presetCurveCorrection)
                     Toggle("智慧色彩校正與去底色", isOn: $viewModel.presetColorEnhance)
-                    Toggle("邊緣手指偵測與消除修復", isOn: $viewModel.presetFingerRemoval)
                     Toggle("使文本變暗 (強化對比)", isOn: $viewModel.presetTextDarken)
                 }
 
                 // 4. 存檔與匯出 (Storage & Export)
                 Section(header: Text("存檔與匯出")) {
                     Toggle("自動備份照片至系統相簿", isOn: $viewModel.autoSaveToGallery)
+
                     Picker("預設掃描解析度", selection: $viewModel.scanResolution) {
-                        Text("超高畫質 4K (2160p)").tag("4K")
-                        Text("標準高畫質 (1080p)").tag("1080p")
+                        ForEach(ScanResolution.allCases) { resolution in
+                            Text(resolution.displayName).tag(resolution)
+                        }
+                    }
+
+                    HStack {
+                        Text("資料夾名稱")
+                        Spacer()
+                        TextField("Scan", text: $folderName)
+                            .multilineTextAlignment(.trailing)
+                            .submitLabel(.done)
+                            .onSubmit { applyFolderName() }
                     }
                 }
 
-                // 5. 關於與版本資訊
+                Section(header: Text("頁面管理")) {
+                    HStack {
+                        Text("目前已掃描頁數")
+                        Spacer()
+                        Text("\(viewModel.pageCount) 頁")
+                            .foregroundColor(.secondary)
+                    }
+
+                    Button(role: .destructive) {
+                        showingResetConfirm = true
+                    } label: {
+                        Text("清除所有掃描頁面")
+                    }
+                    .disabled(viewModel.pageCount == 0)
+                }
+
+                // 5. 關於與版本資訊（實際讀取 Bundle，不再寫死）
                 Section(header: Text("關於")) {
                     HStack {
                         Text("vFlat-iOS 版本")
                         Spacer()
-                        Text("v0.8.0 (REA 原生重構)")
+                        Text(appVersion)
                             .foregroundColor(.secondary)
                     }
                     HStack {
@@ -75,6 +122,20 @@ public struct SettingsView: View {
                         Text("Apple Neural Engine")
                             .foregroundColor(.secondary)
                     }
+                    HStack {
+                        Text("相機目前解析度")
+                        Spacer()
+                        Text(viewModel.cameraManager.resolution.rawValue)
+                            .foregroundColor(.secondary)
+                    }
+                    HStack {
+                        Text("相機實際幀率")
+                        Spacer()
+                        Text(viewModel.cameraManager.activeFrameRate > 0
+                             ? String(format: "%.0f fps", viewModel.cameraManager.activeFrameRate)
+                             : "量測中…")
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
             .navigationTitle("設定")
@@ -82,11 +143,25 @@ public struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("完成") {
+                        applyFolderName()
                         dismiss()
                     }
                     .font(.system(size: 16, weight: .bold))
                 }
             }
+            .alert("清除所有掃描頁面？", isPresented: $showingResetConfirm) {
+                Button("取消", role: .cancel) {}
+                Button("清除", role: .destructive) {
+                    viewModel.clearAllPages()
+                }
+            } message: {
+                Text("此動作會刪除裝置內所有已掃描的頁面與縮圖，無法復原。")
+            }
         }
+    }
+
+    private func applyFolderName() {
+        let trimmed = folderName.trimmingCharacters(in: .whitespacesAndNewlines)
+        viewModel.currentFolder = trimmed.isEmpty ? "Scan" : trimmed
     }
 }

@@ -1,6 +1,6 @@
 # vFlat 逆向工程與 iOS 原生重構專案 (vFlat-iOS)
 
-![Version](https://img.shields.io/badge/version-v1.1.1-blue.svg)
+![Version](https://img.shields.io/badge/version-v1.2.0-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-iOS%2016.0%2B-black.svg)
 ![Swift](https://img.shields.io/badge/Swift-5.9-orange.svg)
 ![Metal](https://img.shields.io/badge/Metal-60fps-red.svg)
@@ -10,7 +10,7 @@
 1. **vFlat 深度逆向工程分析 (REA)**：對 vFlat Android 官方發行版 (`com.voyagerx.scanner`) 之二進位函式庫（`libnative-scan.so`）、AI 神經網路模型（`freeform_v3_2.dat`, `optp_v3_3.dat`）進行底層逆向，解密其專利防逆向混淆、1250 浮點數輸出置換表、ARM NEON 向量正規化與 RQ 矩陣分解。
 2. **iPhone 原生獨立重構 (`vFlat-iOS`)**：基於現代 Apple 原生技術棧（SwiftUI + AVFoundation + Metal + Vision + PDFKit）完全重新打造零第三方依賴、60fps 超流暢、低功耗之文件與書本掃描器。
 
-詳細技術交接手冊與底層二進位逆向細節請參閱：[`AGENT_HANDOVER.md`](file:///AGENT_HANDOVER.md)
+詳細技術交接手冊與底層二進位逆向細節請參閱：[`AGENT_HANDOVER.md`](AGENT_HANDOVER.md)
 
 ---
 
@@ -20,28 +20,36 @@
   - 核心全採 Apple 原生框架（AVFoundation、Vision、Metal、CoreImage、CoreMotion、PDFKit、SwiftUI），無需笨重且吃電的外部函式庫。
 - **60fps 極致流暢預覽**：
   - Metal MSL 著色器硬體加速渲染，透過 `CVMetalTextureCache` 零拷貝導入視訊影格。
-  - 物理 Aspect-Fill 投影，杜絕畫面拉伸變形。
+  - 物理 Aspect-Fill 投影，杜絕畫面拉伸變形；實際幀率依裝置能力自動量測。
 - **雙引擎自適應抓框 (Dual-Engine Boundary Detection)**：
   - 主引擎：Apple Vision 深度學習語意分割（`VNDetectDocumentSegmentationRequest`）。
   - 輔助引擎：多候選高階幾何四邊形偵測（`VNDetectRectanglesRequest`）。
-  - 套用 EMA 時序平滑濾波與物理貼膜級邊界收縮，緊咬物體邊緣。
+  - 推論統一降採樣至 720p，避免 4K 影格把 Vision 壓垮；套用 EMA 時序平滑與邊界收縮。
+- **拍照零延遲、後製不卡頓**：
+  - 按下快門只做「擷取單一影格 + 同影格瞬時偵測」，透視校正、雙頁分割、濾鏡與 JPEG 落盤全部在背景執行。
+- **掃描頁面落盤儲存 (不再 OOM)**：
+  - 影像以 JPEG 存入 `Documents/Scans`，記憶體只保留縮圖與 `index.json` 索引；可累積數百頁而不爆記憶體。
 - **自動穩定捕捉拍照 (Auto-Capture)**：
   - 演算法監控四角點位移量 $\Delta \le 0.02$ 持續 500ms 自動擊發快門，並帶有綠色環狀進度條動畫。
 - **QR Code / 條碼自動解析**：
-  - Apple Vision 實時條碼辨識，頂部彈簧動畫滑出懸浮智慧膠囊，一鍵複製內容或跳轉 Safari 開啟網址。
+  - Apple Vision 實時條碼辨識（獨立節流），頂部彈簧動畫滑出懸浮智慧膠囊，一鍵複製內容或跳轉 Safari 開啟網址。
 - **25×25 自由曲面 GPU 離屏展平 (Metal Dewarping)**：
-  - 依據橫向 25 條微弧線微分積分自適應計算物理展開尺寸，透過 GPU 離屏著色器撫平書頁裝訂波浪彎曲。
+  - 幾何引擎與離屏著色器已就緒，但**必須提供真實模型輸出的 625 點網格**才會展平；目前未接上模型時會自動跳過，不再合成假曲面。
 - **雙頁書本中縫自動分割 (Two-Page Auto Split)**：
   - 自動分析中央光度極小值鎖定書脊中縫，智慧切割為獨立左右兩頁，並剔除裝訂線陰影，支援 LTR/RTL 閱讀順序。
 - **6 大專用文件增強濾鏡**：
-  - 原圖、智慧自動平衡、去暗角增亮、黑白灰階、高反差清晰二值、白板去雜訊模式，支援單頁檢視即時切換。
+  - 原圖、智慧自動平衡、去暗角增亮、黑白灰階、高反差清晰二值、白板去雜訊模式，支援單頁檢視即時切換（以未上色 raw 重算，不損畫質）。
+- **繁體中文離線 OCR**：
+  - `VNRecognizeTextRequest` 支援 zh-Hant / zh-Hans / en-US，結果可全選複製。
 - **多頁 PDF 打包與壓縮匯出**：
-  - 原生 `PDFKit` 支援連拍批次合成為單一 PDF，提供 A4 / Letter / 自適應版面與 4 種壓縮等級，支援 iOS 原生 Share Sheet 分享。
+  - 原生 `PDFKit` 支援批次合成為單一 PDF，提供 A4 / Letter / 自適應版面與 4 種壓縮等級；匯出時才從磁碟解碼，支援 iOS 原生 Share Sheet。
+- **相簿批次匯入**：
+  - 真正的 `PhotosPicker` 多選（最多 50 張），可勾選自動裁剪、色彩校正、文字變暗後匯入為掃描頁。
 - **放大鏡手動角點微調 (Loupe Crop)**：
-  - 拖曳四角點時即時浮現 2.2x 圓形放大鏡與十字準心，徹底消除手指遮擋。
-- **GitHub Actions 雲端自動打包 CI/CD**：
-  - 每次 Push 自動在雲端 macOS Sequoia 環境完成編譯並生成未簽名之 `vFlat.ipa`。
-  - 提供本地一鍵自動下載腳本，免手動至網頁下載。
+  - 拖曳四角點時即時浮現 2.2x 圓形放大鏡與十字準心，手勢使用具名座標系，不再漂移。
+- **GitHub Actions 雲端測試＋打包 CI/CD**：
+  - 每次 Push 先跑 `xcodebuild test`（iPhone 16 模擬器，失敗回退 iPhone 15），通過後才產生未簽名 `vFlat.ipa`。
+  - Release tag 直接讀取 `VERSION` 檔案，不再寫死。
 
 ---
 
@@ -51,7 +59,7 @@
 - **側載安裝工具**：Windows / macOS 版 [Sideloadly](https://sideloadly.io/) 或 AltStore。
 - **原始碼編譯環境（選用）**：
   - macOS 14.0+
-  - Xcode 15.0+ (Swift 5.9+)
+  - Xcode 16.0+
   - `xcodegen` (`brew install xcodegen`)
 
 ---
@@ -71,25 +79,53 @@
 
 ---
 
+## 本機建置與測試
+
+```bash
+# 1. 產生 Xcode 專案（CI 與本機共用同一條路徑）
+brew install xcodegen
+xcodegen generate
+
+# 2. 單元測試
+xcodebuild test \
+  -project vFlat.xcodeproj \
+  -scheme vFlat \
+  -destination "platform=iOS Simulator,name=iPhone 16" \
+  CODE_SIGNING_ALLOWED=NO
+
+# 3. 未簽名 IPA
+xcodebuild archive \
+  -project vFlat.xcodeproj \
+  -scheme vFlat \
+  -destination "generic/platform=iOS" \
+  -archivePath build/vFlat.xcarchive \
+  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+```
+
+> SPM (`ios/Package.swift`) 仍保留供 Xcode 直接開啟除錯使用，但**唯一支援的 CI 建置路徑是 xcodegen + xcodeproj**，避免兩套設定漂移。
+
+---
+
 ## 專案目錄結構
 
 ```
 vflat/
 ├── ios/                             # iPhone 原生完整應用程式代碼
-│   ├── Package.swift                # Swift 5.9 SPM 套件定義
-│   ├── Info.plist                   # 系統權限宣告 (Camera, Photo Library)
+│   ├── Package.swift                # Swift 5.9 SPM 套件定義（本機除錯用）
+│   ├── Info.plist                   # 系統權限宣告 (Camera, Photo Library, Photo Add)
 │   ├── Sources/
-│   │   ├── Core/                    # 核心底層 (Camera, Motion, Dewarp, Metal, Export)
+│   │   ├── Core/                    # 核心底層 (Camera, Motion, Dewarp, Metal, Storage, OCR, Export)
 │   │   ├── UI/                      # 現代 SwiftUI 介面與 ViewModel
 │   │   └── vFlatApp/                # App 進入點
-│   └── Tests/                       # 幾何數學單元測試
+│   └── Tests/DewarpTests/           # 幾何、反混淆、條碼、自動快門單元測試
 ├── apks/                            # 逆向工程 Android 提取資產與二進位庫
 │   └── extracted_arm64/
 │       ├── assets/models/           # 原廠 AI 模型 (freeform_v3_2.dat, optp_v3_3.dat)
 │       └── lib/arm64-v8a/           # 原廠 C++ 核心 (libnative-scan.so 等)
-├── .github/workflows/               # GitHub Actions CI/CD 自動構建腳本
+├── .github/workflows/               # GitHub Actions CI/CD（測試 + 打包 + Release）
+├── project.yml                      # XcodeGen 專案定義（版本、權限、測試 target）
 ├── AGENT_HANDOVER.md                # AI Agent 深度技術交接手冊
-├── VERSION                          # 專案語意化版本號宣告檔
+├── VERSION                          # 專案語意化版本號宣告檔（CI Release tag 來源）
 ├── download_ipa.bat                 # Windows 純 ASCII 一鍵下載 IPA 批次檔
 └── download_ipa.py                  # Python GitHub Actions IPA 下載器
 ```
@@ -113,3 +149,4 @@ vflat/
 - 每次代碼修改**必須推進 `VERSION` 版本號**。
 - Git Commit 一律以**繁體中文**清晰描述變更內容。
 - 一鍵啟動腳本（`.bat` / `.sh`）**嚴禁包含任何中文字元**，維持純 ASCII 格式。
+- 修改 `Shaders.metal` / `ShaderTypes.h` 時，**必須同步更新** `MetalShaderSource.swift` 內的執行期後備字串。

@@ -1,8 +1,13 @@
-import Foundation
+﻿import Foundation
 import CoreVideo
+import CoreImage
 import Vision
 import CoreGraphics
 import QuartzCore
+
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// 描述偵測到的文件四邊角點 (Normalized 0.0 .. 1.0, 螢幕座標系 Top-Left 原點)
 public struct DetectedDocument: Equatable {
@@ -116,7 +121,7 @@ struct CandidateQuad {
         let minVert = max(min(leftLen, rightLen), 0.0001)
         let vertRatio = maxVert / minVert
 
-        // 嚴格限制對邊長度比例不可超過 1.35 (防範斜向陰影與畸變假梯形)
+        // 限制對邊長度比例，防範斜向陰影與畸變假梯形
         if horizRatio > 1.35 || vertRatio > 1.35 {
             return false
         }
@@ -136,9 +141,9 @@ struct CandidateQuad {
             return false
         }
 
-        // 面積合理範圍 (佔畫面 2% 到 90%)
+        // 面積合理範圍 (佔畫面 1.5% 到 95%)
         let a = area
-        if a < 0.02 || a > 0.90 {
+        if a < 0.015 || a > 0.95 {
             return false
         }
 
@@ -246,171 +251,298 @@ struct CandidateQuad {
 
 /// 透過 Apple Vision 框架在相機串流中即時偵測文件/矩形邊界，並具備 EMA 平滑防抖與防閃爍延遲
 public final class DocumentDetector {
+    // MARK: - 可調參數
+
+    /// 送進 Vision 的推論工作解析度 (寬度)。以縮圖推論可大幅降低 ANE/CPU 負載，座標仍為正規化故不影響精度
+    public static let inferenceWidth: CGFloat = 720.0
+    /// 即時預覽偵測頻率上限
+    public var detectionFrameRate: Double = 15.0
+    /// 條碼偵測頻率上限 (獨立節流，避免每幀都跑全符號集)
+    public var barcodeFrameRate: Double = 4.0
+    /// 邊界物理外擴比例 (貼膜級微調)
+    public var marginRatioX: CGFloat = 0.01
+    public var marginRatioY: CGFloat = 0.015
+
+    // MARK: - 內部狀態 (僅在 detectionQueue 上存取)
+
     private let detectionQueue = DispatchQueue(label: "com.vflat.ios.detector", qos: .userInteractive)
     private var isProcessing = false
     private var lastProcessTime: TimeInterval = 0
-    private let throttleInterval: TimeInterval = 1.0 / 15.0 // 15fps 最佳平穩採樣率
+    private var lastBarcodeRunTime: TimeInterval = 0
 
     // 平滑濾波狀態
     private var currentSmoothedDoc: DetectedDocument? = nil
     private var lastDetectedTime: TimeInterval = 0
     private let persistenceWindow: TimeInterval = 0.35 // 350ms 滯後窗口，防止短暫掉幀產生劇烈閃爍
 
+    private var lastBarcodePayload: String? = nil
+    /// 最後一次「實際掃到條碼」的時間 (用於 2.5 秒殘留；與掃描節流分開)
+    private var lastBarcodeSeenTime: TimeInterval = 0
+
     public var onDocumentDetected: ((DetectedDocument?) -> Void)?
     public var onBarcodeDetected: ((DetectedBarcode?) -> Void)?
 
-    private var barcodeThrottleTime: TimeInterval = 0
-    private var lastBarcodePayload: String? = nil
-    private var lastBarcodeTime: TimeInterval = 0
+    /// CIContext 為執行緒安全，供串流縮圖與單張偵測共用
+    private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
     public init() {}
 
-    /// 傳入相機影格 (CVPixelBuffer) 進行非同步文件邊緣分析
-    public func processFrame(_ pixelBuffer: CVPixelBuffer) {
-        let currentTime = CACurrentMediaTime()
-        guard currentTime - lastProcessTime >= throttleInterval else { return }
+    // MARK: - 串流即時偵測
 
+    /// 傳入相機影格 (CVPixelBuffer) 進行非同步文件邊緣分析
+    /// 所有可變狀態皆在 detectionQueue 上讀寫，避免跨執行緒資料競爭
+    public func processFrame(_ pixelBuffer: CVPixelBuffer) {
         detectionQueue.async { [weak self] in
             guard let self = self else { return }
-            if self.isProcessing { return }
-            self.isProcessing = true
-            self.lastProcessTime = currentTime
+            guard !self.isProcessing else { return }
 
-            // 雙引擎檢測管線：
-            // 主引擎 (Primary)：Apple 官方深度學習語意分割神經網絡 (VNDetectDocumentSegmentationRequest)
-            // 備援引擎 (Fallback)：高嚴格度幾何約束矩形檢測器 (VNDetectRectanglesRequest)
-            var neuralCandidate: CandidateQuad? = nil
-            var fallbackCandidates: [CandidateQuad] = []
-
-            let docSegRequest = VNDetectDocumentSegmentationRequest { req, error in
-                if error == nil,
-                   let results = req.results as? [VNRectangleObservation],
-                   let best = results.first {
-                    let quad = CandidateQuad(
-                        topLeft: CGPoint(x: best.topLeft.x, y: 1.0 - best.topLeft.y),
-                        topRight: CGPoint(x: best.topRight.x, y: 1.0 - best.topRight.y),
-                        bottomRight: CGPoint(x: best.bottomRight.x, y: 1.0 - best.bottomRight.y),
-                        bottomLeft: CGPoint(x: best.bottomLeft.x, y: 1.0 - best.bottomLeft.y),
-                        confidence: best.confidence
-                    )
-                    if quad.isValidGeometry {
-                        neuralCandidate = quad
-                    }
-                }
-            }
-
-            let rectRequest = VNDetectRectanglesRequest { req, error in
-                if error == nil,
-                   let results = req.results as? [VNRectangleObservation],
-                   !results.isEmpty {
-                    fallbackCandidates = results.map { r in
-                        CandidateQuad(
-                            topLeft: CGPoint(x: r.topLeft.x, y: 1.0 - r.topLeft.y),
-                            topRight: CGPoint(x: r.topRight.x, y: 1.0 - r.topRight.y),
-                            bottomRight: CGPoint(x: r.bottomRight.x, y: 1.0 - r.bottomRight.y),
-                            bottomLeft: CGPoint(x: r.bottomLeft.x, y: 1.0 - r.bottomLeft.y),
-                            confidence: r.confidence
-                        )
-                    }.filter { $0.isValidGeometry }
-                }
-            }
-            rectRequest.maximumObservations = 5
-            rectRequest.minimumConfidence = 0.40
-            rectRequest.minimumAspectRatio = 0.15
-            rectRequest.maximumAspectRatio = 1.0
-            rectRequest.quadratureTolerance = 18.0
-            rectRequest.minimumSize = 0.08
-
-            var barcodeResult: DetectedBarcode? = nil
-            let barcodeRequest = VNDetectBarcodesRequest { req, error in
-                guard error == nil, let results = req.results as? [VNBarcodeObservation], let first = results.first else {
-                    return
-                }
-                if let payload = first.payloadStringValue, !payload.isEmpty {
-                    let symbologyStr = first.symbology.rawValue
-                    barcodeResult = DetectedBarcode(
-                        payloadString: payload,
-                        symbology: symbologyStr,
-                        boundingBox: first.boundingBox
-                    )
-                }
-            }
-
-            let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
-            do {
-                try handler.perform([docSegRequest, rectRequest, barcodeRequest])
-            } catch {
-                self.isProcessing = false
-                self.onDocumentDetected?(nil)
-                self.onBarcodeDetected?(nil)
-                return
-            }
-
-            self.isProcessing = false
             let now = CACurrentMediaTime()
+            guard now - self.lastProcessTime >= (1.0 / max(self.detectionFrameRate, 1.0)) else { return }
 
-            if let bc = barcodeResult {
-                self.lastBarcodePayload = bc.payloadString
-                self.lastBarcodeTime = now
-                self.onBarcodeDetected?(bc)
-            } else if now - self.lastBarcodeTime < 2.5, let lastPayload = self.lastBarcodePayload {
-                self.onBarcodeDetected?(DetectedBarcode(payloadString: lastPayload, symbology: "QR/Barcode"))
+            self.isProcessing = true
+            self.lastProcessTime = now
+            defer { self.isProcessing = false }
+
+            autoreleasepool {
+                self.runStreamDetection(pixelBuffer: pixelBuffer, now: now)
+            }
+        }
+    }
+
+    private func runStreamDetection(pixelBuffer: CVPixelBuffer, now: TimeInterval) {
+        guard let inferenceImage = DocumentDetector.makeInferenceImage(from: pixelBuffer) else {
+            onDocumentDetected?(nil)
+            return
+        }
+
+        // 條碼獨立節流：只有達到頻率才把條碼請求加入同一次 Vision 批次
+        let shouldRunBarcode = now - lastBarcodeRunTime >= (1.0 / max(barcodeFrameRate, 1.0))
+        if shouldRunBarcode {
+            lastBarcodeRunTime = now
+        }
+        let analysis = DocumentDetector.analyze(image: inferenceImage, includeBarcode: shouldRunBarcode)
+
+        // 1. 條碼結果 (含 2.5 秒殘留，避免 UI 膠囊閃爍)
+        if let bc = analysis.barcode {
+            lastBarcodePayload = bc.payloadString
+            lastBarcodeSeenTime = now
+            onBarcodeDetected?(bc)
+        } else if now - lastBarcodeSeenTime < 2.5, let lastPayload = lastBarcodePayload {
+            onBarcodeDetected?(DetectedBarcode(payloadString: lastPayload, symbology: "QR/Barcode"))
+        } else {
+            lastBarcodePayload = nil
+            onBarcodeDetected?(nil)
+        }
+
+        // 2. 文件邊界 (主引擎：語意分割；備援：幾何矩形 + 垂直融合)
+        var selectedQuad: CandidateQuad? = analysis.neural
+        if selectedQuad == nil, !analysis.fallbackCandidates.isEmpty {
+            selectedQuad = DocumentDetector.selectBest(from: analysis.fallbackCandidates)
+        }
+
+        if let best = selectedQuad {
+            let physical = best.expandedToPhysicalBounds(marginRatioX: marginRatioX, marginRatioY: marginRatioY)
+            let rawDoc = DetectedDocument(
+                topLeft: physical.topLeft,
+                topRight: physical.topRight,
+                bottomRight: physical.bottomRight,
+                bottomLeft: physical.bottomLeft,
+                confidence: physical.confidence
+            )
+
+            let smoothed: DetectedDocument
+            if let previous = currentSmoothedDoc {
+                let aligned = previous.reorderedToMatch(rawDoc)
+                smoothed = previous.smoothed(with: aligned, alpha: 0.35)
             } else {
-                self.lastBarcodePayload = nil
-                self.onBarcodeDetected?(nil)
+                smoothed = rawDoc
             }
 
-            // 1. 優先採用神經網絡語意分割輸出
-            var selectedQuad: CandidateQuad? = neuralCandidate
-
-            // 2. 若神經網絡未命中，採用垂直融合備援幾何輸出
-            if selectedQuad == nil && !fallbackCandidates.isEmpty {
-                let n = fallbackCandidates.count
-                var mergedList = fallbackCandidates
-                if n >= 2 {
-                    for i in 0..<n {
-                        for j in (i + 1)..<n {
-                            if let merged = CandidateQuad.tryMergeVertically(fallbackCandidates[i], fallbackCandidates[j]) {
-                                mergedList.append(merged)
-                            }
-                        }
-                    }
-                }
-                selectedQuad = mergedList.max(by: { $0.score < $1.score })
+            currentSmoothedDoc = smoothed
+            lastDetectedTime = now
+            onDocumentDetected?(smoothed)
+        } else {
+            // 滯後窗口平滑，避免相機晃動短暫掉幀產生頻閃
+            if let previous = currentSmoothedDoc, now - lastDetectedTime < persistenceWindow {
+                onDocumentDetected?(previous)
+            } else {
+                currentSmoothedDoc = nil
+                onDocumentDetected?(nil)
             }
+        }
+    }
 
-            // 3. 套用實體外輪廓自適應吸附、角點最小位移對齊與自適應 EMA 平滑
-            if let best = selectedQuad {
-                // 依最新實拍反饋精準收縮邊距，徹底消除頂部多出 3% 與底部多出 5% 的黑桌溢出，100% 貼齊盒身物理邊界
-                let physical = best.expandedToPhysicalBounds(marginRatioX: 0.01, marginRatioY: 0.015)
-                let rawDoc = DetectedDocument(
-                    topLeft: physical.topLeft,
-                    topRight: physical.topRight,
-                    bottomRight: physical.bottomRight,
-                    bottomLeft: physical.bottomLeft,
-                    confidence: physical.confidence
+    /// 重設平滑狀態 (切換相機或重新進入掃描頁時呼叫)
+    public func reset() {
+        detectionQueue.async { [weak self] in
+            guard let self = self else { return }
+            self.currentSmoothedDoc = nil
+            self.lastDetectedTime = 0
+            self.lastProcessTime = 0
+            self.lastBarcodePayload = nil
+            self.lastBarcodeRunTime = 0
+            self.lastBarcodeSeenTime = 0
+        }
+    }
+
+    // MARK: - 單張瞬時偵測 (拍照當下取最新角點)
+
+    /// 對指定影格執行一次「無平滑、無滯後」的邊界偵測。
+    /// 拍照時使用同一張影格重新偵測，可避免 EMA 平滑與 350ms 滯後造成的裁切錯位。
+    public static func detectOnce(
+        in pixelBuffer: CVPixelBuffer,
+        marginRatioX: CGFloat = 0.01,
+        marginRatioY: CGFloat = 0.015
+    ) -> DetectedDocument? {
+        guard let inferenceImage = makeInferenceImage(from: pixelBuffer) else { return nil }
+        return detectOnce(in: inferenceImage, marginRatioX: marginRatioX, marginRatioY: marginRatioY)
+    }
+
+    #if canImport(UIKit)
+    /// 對相簿匯入的 UIImage 執行單次邊界偵測（用於匯入時自動裁切）
+    public static func detectOnce(
+        in image: UIImage,
+        marginRatioX: CGFloat = 0.01,
+        marginRatioY: CGFloat = 0.015
+    ) -> DetectedDocument? {
+        guard let cgImage = image.cgImage else { return nil }
+        return detectOnce(in: cgImage, marginRatioX: marginRatioX, marginRatioY: marginRatioY)
+    }
+    #endif
+
+    /// 對任意 CGImage 執行單次邊界偵測（內部會降採樣至推論解析度）
+    public static func detectOnce(
+        in image: CGImage,
+        marginRatioX: CGFloat = 0.01,
+        marginRatioY: CGFloat = 0.015
+    ) -> DetectedDocument? {
+        let ciImage = CIImage(cgImage: image)
+        let extent = ciImage.extent
+        guard extent.width > 0, extent.height > 0 else { return nil }
+        let scale = min(1.0, inferenceWidth / extent.width)
+        let scaled = ciImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        guard let inferenceImage = ciContext.createCGImage(scaled, from: scaled.extent) else { return nil }
+
+        let analysis = analyze(image: inferenceImage, includeBarcode: false)
+
+        var selected = analysis.neural
+        if selected == nil, !analysis.fallbackCandidates.isEmpty {
+            selected = selectBest(from: analysis.fallbackCandidates)
+        }
+        guard let best = selected else { return nil }
+        let physical = best.expandedToPhysicalBounds(marginRatioX: marginRatioX, marginRatioY: marginRatioY)
+        return DetectedDocument(
+            topLeft: physical.topLeft,
+            topRight: physical.topRight,
+            bottomRight: physical.bottomRight,
+            bottomLeft: physical.bottomLeft,
+            confidence: physical.confidence
+        )
+    }
+
+    // MARK: - Vision 推論
+
+    struct AnalysisResult {
+        var neural: CandidateQuad?
+        var fallbackCandidates: [CandidateQuad]
+        var barcode: DetectedBarcode?
+    }
+
+    /// 建立降採樣後的推論影像 (僅影響推論成本，正規化座標不需回映射)
+    static func makeInferenceImage(from pixelBuffer: CVPixelBuffer) -> CGImage? {
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        let extent = ciImage.extent
+        guard extent.width > 0, extent.height > 0 else { return nil }
+        let scale = min(1.0, inferenceWidth / extent.width)
+        let scaled = ciImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        return ciContext.createCGImage(scaled, from: scaled.extent)
+    }
+
+    static func analyze(image: CGImage, includeBarcode: Bool) -> AnalysisResult {
+        var neural: CandidateQuad? = nil
+        var fallbackCandidates: [CandidateQuad] = []
+        var barcode: DetectedBarcode? = nil
+
+        let docSegRequest = VNDetectDocumentSegmentationRequest { req, error in
+            guard error == nil,
+                  let results = req.results as? [VNRectangleObservation],
+                  let best = results.first else { return }
+            let quad = CandidateQuad(
+                topLeft: CGPoint(x: best.topLeft.x, y: 1.0 - best.topLeft.y),
+                topRight: CGPoint(x: best.topRight.x, y: 1.0 - best.topRight.y),
+                bottomRight: CGPoint(x: best.bottomRight.x, y: 1.0 - best.bottomRight.y),
+                bottomLeft: CGPoint(x: best.bottomLeft.x, y: 1.0 - best.bottomLeft.y),
+                confidence: best.confidence
+            )
+            if quad.isValidGeometry {
+                neural = quad
+            }
+        }
+
+        let rectRequest = VNDetectRectanglesRequest { req, error in
+            guard error == nil,
+                  let results = req.results as? [VNRectangleObservation],
+                  !results.isEmpty else { return }
+            fallbackCandidates = results.map { r in
+                CandidateQuad(
+                    topLeft: CGPoint(x: r.topLeft.x, y: 1.0 - r.topLeft.y),
+                    topRight: CGPoint(x: r.topRight.x, y: 1.0 - r.topRight.y),
+                    bottomRight: CGPoint(x: r.bottomRight.x, y: 1.0 - r.bottomRight.y),
+                    bottomLeft: CGPoint(x: r.bottomLeft.x, y: 1.0 - r.bottomLeft.y),
+                    confidence: r.confidence
                 )
+            }.filter { $0.isValidGeometry }
+        }
+        rectRequest.maximumObservations = 5
+        rectRequest.minimumConfidence = 0.40
+        rectRequest.minimumAspectRatio = 0.15
+        rectRequest.maximumAspectRatio = 1.0
+        rectRequest.quadratureTolerance = 18.0
+        rectRequest.minimumSize = 0.08
 
-                let smoothed: DetectedDocument
-                if let previous = self.currentSmoothedDoc {
-                    let aligned = previous.reorderedToMatch(rawDoc)
-                    smoothed = previous.smoothed(with: aligned, alpha: 0.35)
-                } else {
-                    smoothed = rawDoc
-                }
+        var requests: [VNRequest] = [docSegRequest, rectRequest]
 
-                self.currentSmoothedDoc = smoothed
-                self.lastDetectedTime = now
-                self.onDocumentDetected?(smoothed)
-            } else {
-                // 滯後窗口平滑，避免相機晃動短暫掉幀產生頻閃
-                if let previous = self.currentSmoothedDoc, now - self.lastDetectedTime < self.persistenceWindow {
-                    self.onDocumentDetected?(previous)
-                } else {
-                    self.currentSmoothedDoc = nil
-                    self.onDocumentDetected?(nil)
+        if includeBarcode {
+            // 限定常見符號集，避免全符號掃描造成不必要的 CPU 負擔
+            let request = VNDetectBarcodesRequest { req, error in
+                guard error == nil,
+                      let results = req.results as? [VNBarcodeObservation],
+                      let first = results.first,
+                      let payload = first.payloadStringValue,
+                      !payload.isEmpty else { return }
+                barcode = DetectedBarcode(
+                    payloadString: payload,
+                    symbology: first.symbology.rawValue,
+                    boundingBox: first.boundingBox
+                )
+            }
+            request.symbologies = [.qr, .aztec, .pdf417, .dataMatrix, .ean13, .ean8, .upce, .code39, .code93, .code128, .itf14]
+            requests.append(request)
+        }
+
+        let handler = VNImageRequestHandler(cgImage: image, orientation: .up, options: [:])
+        try? handler.perform(requests)
+
+        return AnalysisResult(
+            neural: neural,
+            fallbackCandidates: fallbackCandidates,
+            barcode: barcode
+        )
+    }
+
+    /// 備援候選評分 + 垂直融合
+    static func selectBest(from candidates: [CandidateQuad]) -> CandidateQuad? {
+        guard !candidates.isEmpty else { return nil }
+        var mergedList = candidates
+        if candidates.count >= 2 {
+            for i in 0..<candidates.count {
+                for j in (i + 1)..<candidates.count {
+                    if let merged = CandidateQuad.tryMergeVertically(candidates[i], candidates[j]) {
+                        mergedList.append(merged)
+                    }
                 }
             }
         }
+        return mergedList.max(by: { $0.score < $1.score })
     }
 }

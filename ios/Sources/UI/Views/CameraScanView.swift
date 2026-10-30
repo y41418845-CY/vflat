@@ -23,7 +23,7 @@ public struct MetalDewarpViewRepresentable: UIViewRepresentable {
     }
 
     public func updateUIView(_ uiView: MTKView, context: Context) {
-        // 當狀態或尺寸更新時由 MTKView 自行調度
+        // 由 MTKView 自行調度繪製
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -52,6 +52,13 @@ public struct CameraScanView: View {
             #if canImport(UIKit)
             MetalDewarpViewRepresentable(viewModel: viewModel)
                 .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    // 「觸控螢幕拍照」設定：整片預覽區即快門
+                    if viewModel.touchToScan {
+                        viewModel.triggerCapture()
+                    }
+                }
             #else
             Text("Metal 渲染器需在 iOS 實體設備或模擬器環境下運作")
                 .foregroundColor(.white)
@@ -80,13 +87,24 @@ public struct CameraScanView: View {
                             .font(.system(size: 22, weight: .bold))
                             .foregroundColor(.white)
                     }
-                    .padding(.bottom, 160)
+                    .padding(.bottom, 200)
                 }
                 .transition(.opacity)
                 .animation(.easeInOut(duration: 0.2), value: viewModel.autoCaptureProgress)
             }
 
-            // 4. QR Code / 條碼懸浮智慧膠囊通知 (對齊 OSS-DocumentScanner，點擊複製或開啟網址)
+            // 4. 定時拍照倒數
+            if let countdown = viewModel.captureCountdown {
+                Text("\(countdown)")
+                    .font(.system(size: 120, weight: .thin, design: .rounded))
+                    .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.5), radius: 12)
+                    .transition(.scale.combined(with: .opacity))
+                    .animation(.easeInOut(duration: 0.2), value: countdown)
+                    .allowsHitTesting(false)
+            }
+
+            // 5. QR Code / 條碼懸浮智慧膠囊通知 (對齊 OSS-DocumentScanner，點擊複製或開啟網址)
             if let barcode = viewModel.detectedBarcode {
                 VStack {
                     Button(action: {
@@ -141,11 +159,10 @@ public struct CameraScanView: View {
                 }
             }
 
-            // 5. 頂部工具列與底部控制層
+            // 6. 頂部工具列與底部控制層
             VStack(spacing: 0) {
-                // 頂部主導航列 (資料庫、Upgrade、設定) - 對齊圖一最上方
+                // 頂部主導航列 (資料庫、Upgrade、設定)
                 HStack(spacing: 12) {
-                    // 左：資料庫 / PDF 匯出按鈕
                     Button(action: {
                         viewModel.showingPDFExportSheet = true
                     }) {
@@ -154,6 +171,11 @@ public struct CameraScanView: View {
                                 .font(.system(size: 13, weight: .semibold))
                             Text("匯出 PDF")
                                 .font(.system(size: 14, weight: .bold))
+                            if viewModel.pageCount > 0 {
+                                Text("\(viewModel.pageCount)")
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
+                            }
                         }
                         .foregroundColor(.white)
                         .padding(.horizontal, 14)
@@ -161,10 +183,11 @@ public struct CameraScanView: View {
                         .background(Color.white.opacity(0.2))
                         .clipShape(Capsule())
                     }
+                    .disabled(viewModel.pageCount == 0)
+                    .opacity(viewModel.pageCount == 0 ? 0.5 : 1)
 
                     Spacer()
 
-                    // 右：設定齒輪按鈕
                     Button(action: {
                         viewModel.showingSettings = true
                     }) {
@@ -179,22 +202,35 @@ public struct CameraScanView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 44) // 避開安全區域與動態島
 
-                // 次頂部功能列 (閃光燈、定時器、Auto Scan 開關、濾鏡模式) - 對齊圖一
+                // 次頂部功能列 (閃光燈、定時器、Auto Scan 開關、濾鏡模式)
                 HStack {
                     Button(action: {
-                        viewModel.isFlashlightOn.toggle()
+                        viewModel.toggleTorch()
                     }) {
                         Image(systemName: viewModel.isFlashlightOn ? "bolt.fill" : "bolt")
                             .font(.system(size: 18))
                             .foregroundColor(viewModel.isFlashlightOn ? .yellow : .white)
+                            .opacity(viewModel.cameraManager.isTorchAvailable || viewModel.isFlashlightOn ? 1.0 : 0.35)
                     }
+                    .disabled(!viewModel.cameraManager.isTorchAvailable && !viewModel.isFlashlightOn)
 
                     Spacer()
 
-                    Button(action: {}) {
-                        Image(systemName: "timer")
-                            .font(.system(size: 18))
-                            .foregroundColor(.white)
+                    Button(action: {
+                        viewModel.cycleCaptureTimer()
+                    }) {
+                        ZStack {
+                            Image(systemName: "timer")
+                                .font(.system(size: 18))
+                                .foregroundColor(.white)
+                            if viewModel.cameraTimerSeconds > 0 {
+                                Text("\(viewModel.cameraTimerSeconds)s")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
+                                    .offset(y: 16)
+                            }
+                        }
+                        .frame(width: 28, height: 28)
                     }
 
                     Spacer()
@@ -219,20 +255,22 @@ public struct CameraScanView: View {
 
                     Spacer()
 
-                    Button(action: {}) {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: "rays")
-                                .font(.system(size: 20))
+                    // 濾鏡快速切換（點擊循環 6 種模式，實際套用於下一次快門與目前最後一頁）
+                    Button(action: {
+                        viewModel.cycleFilterMode()
+                    }) {
+                        VStack(spacing: 1) {
+                            Image(systemName: viewModel.selectedFilterMode.iconName)
+                                .font(.system(size: 18))
                                 .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
-
-                            Circle()
-                                .fill(Color.red)
-                                .frame(width: 6, height: 6)
-                                .offset(x: 2, y: -2)
+                            Text(viewModel.selectedFilterMode.rawValue)
+                                .font(.system(size: 8, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.85))
                         }
+                        .frame(width: 44)
                     }
                 }
-                .padding(.horizontal, 28)
+                .padding(.horizontal, 24)
                 .padding(.top, 14)
 
                 Spacer()
@@ -241,7 +279,31 @@ public struct CameraScanView: View {
                 ScanControlBar(viewModel: viewModel)
             }
 
-            // 5. 原生相機快門閃爍白光視覺回饋 (Shutter Flash Animation)
+            // 7. 錯誤提示橫幅
+            if let message = viewModel.errorMessage {
+                VStack {
+                    Spacer()
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 14))
+                        Text(message)
+                            .font(.system(size: 13, weight: .medium))
+                            .multilineTextAlignment(.leading)
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color(red: 0.75, green: 0.2, blue: 0.2).opacity(0.92))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 190)
+                    .onTapGesture { viewModel.clearError() }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                .animation(.easeInOut(duration: 0.2), value: message)
+            }
+
+            // 8. 原生相機快門閃爍白光視覺回饋
             if viewModel.isShutterFlashing {
                 Color.white
                     .ignoresSafeArea()
@@ -259,7 +321,11 @@ public struct CameraScanView: View {
         }
         .sheet(isPresented: $viewModel.showingPDFExportSheet) {
             #if canImport(UIKit)
-            PDFExportSheet(images: viewModel.capturedImages, defaultPrefix: viewModel.currentFolder)
+            PDFExportSheet(
+                pages: viewModel.pages,
+                store: viewModel.pageStore,
+                defaultPrefix: viewModel.currentFolder
+            )
             #endif
         }
         .task {

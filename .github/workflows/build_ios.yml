@@ -1,8 +1,9 @@
-name: Build iOS IPA
+name: Build & Test iOS IPA
 
 on:
   push:
     branches: [ master, main ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ master, main ]
   workflow_dispatch:
@@ -10,8 +11,55 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  test:
+    name: Unit Tests
+    runs-on: macos-15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode Version
+        run: |
+          if ls -d /Applications/Xcode_16*.app 1> /dev/null 2>&1; then
+            TARGET_XCODE=$(ls -d /Applications/Xcode_16*.app | sort -V | tail -n 1)
+            echo "Selecting $TARGET_XCODE"
+            sudo xcode-select -s "$TARGET_XCODE"
+          fi
+          xcodebuild -version
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode Project
+        run: xcodegen generate
+
+      - name: Run Unit Tests
+        run: |
+          set -o pipefail
+          run_tests() {
+            xcodebuild test \
+              -project vFlat.xcodeproj \
+              -scheme vFlat \
+              -destination "platform=iOS Simulator,name=$1" \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY=""
+          }
+
+          # macos-15 runner 不一定預載 iPhone 16 模擬器，失敗時回退 iPhone 15
+          if ! run_tests "iPhone 16"; then
+            echo "::warning::iPhone 16 simulator unavailable, falling back to iPhone 15"
+            run_tests "iPhone 15"
+          fi
+
   build:
+    name: Build Unsigned IPA
+    needs: test
     runs-on: macos-15
     steps:
       - name: Checkout repository
@@ -50,21 +98,37 @@ jobs:
           zip -r vFlat.ipa Payload
           rm -rf Payload
 
-      - name: Release IPA on GitHub
-        uses: softprops/action-gh-release@v2
-        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
-        with:
-          tag_name: "v0.4.4"
-          name: "vFlat iOS v0.4.4"
-          body: "vFlat Scan iOS 雲端自動編譯產出之未簽名 IPA 安裝包，可透過 Sideloadly 進行免越獄安裝。"
-          files: vFlat.ipa
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload IPA Artifact (Optional)
+      - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
           name: vFlat-iOS-Unsigned-IPA
           path: vFlat.ipa
           retention-days: 7
+
+      - name: Resolve Release Tag
+        id: release_tag
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+          else
+            TAG_NAME="$(tr -d '\r\n' < VERSION)"
+          fi
+          if [[ -z "$TAG_NAME" ]]; then
+            echo "::error::VERSION 檔案為空，無法決定 release tag"
+            exit 1
+          fi
+          echo "tag=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "Release tag: $TAG_NAME"
+
+      - name: Release IPA on GitHub
+        uses: softprops/action-gh-release@v2
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        with:
+          tag_name: ${{ steps.release_tag.outputs.tag }}
+          name: "vFlat iOS ${{ steps.release_tag.outputs.tag }}"
+          body: "vFlat Scan iOS 雲端自動編譯產出之未簽名 IPA 安裝包，可透過 Sideloadly 進行免越獄安裝。"
+          files: vFlat.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

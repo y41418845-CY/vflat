@@ -4,8 +4,12 @@ import SwiftUI
 import UIKit
 
 /// 原生 PDF 匯出與分享設定彈窗 (對齊 OpenScan 匯出體驗)
+///
+/// 只接收 `ScanPage` 中繼資料，實際影像在匯出時才由 `ScanPageStore` 從磁碟解碼，
+/// 避免一次把所有全解析度頁面載入記憶體（舊版 `[UIImage]` 會在數十頁後 OOM）。
 public struct PDFExportSheet: View {
-    public let images: [UIImage]
+    public let pages: [ScanPage]
+    public let store: ScanPageStore
     public let defaultPrefix: String
     @Environment(\.dismiss) private var dismiss
 
@@ -15,9 +19,11 @@ public struct PDFExportSheet: View {
     @State private var isExporting: Bool = false
     @State private var shareURL: URL? = nil
     @State private var showingShareActivity: Bool = false
+    @State private var errorMessage: String? = nil
 
-    public init(images: [UIImage], defaultPrefix: String = "涓建築") {
-        self.images = images
+    public init(pages: [ScanPage], store: ScanPageStore, defaultPrefix: String = "Scan") {
+        self.pages = pages
+        self.store = store
         self.defaultPrefix = defaultPrefix
         let initialName = DocumentNamingService.generateName(prefix: defaultPrefix, ext: "pdf")
         self._fileName = State(initialValue: initialName)
@@ -52,8 +58,16 @@ public struct PDFExportSheet: View {
                     HStack {
                         Text("包含頁數")
                         Spacer()
-                        Text("\(images.count) 頁")
+                        Text("\(pages.count) 頁")
                             .foregroundColor(.secondary)
+                    }
+                }
+
+                if let errorMessage = errorMessage {
+                    Section {
+                        Text(errorMessage)
+                            .font(.system(size: 13))
+                            .foregroundColor(.red)
                     }
                 }
 
@@ -72,7 +86,7 @@ public struct PDFExportSheet: View {
                         }
                     }
                     .listRowBackground(Color(red: 0.22, green: 0.72, blue: 0.62))
-                    .disabled(isExporting || images.isEmpty)
+                    .disabled(isExporting || pages.isEmpty)
                 }
             }
             .navigationTitle("匯出 PDF 文件")
@@ -91,23 +105,44 @@ public struct PDFExportSheet: View {
     }
 
     private func exportAndShare() {
-        guard !images.isEmpty else { return }
+        guard !pages.isEmpty, !isExporting else { return }
         isExporting = true
+        errorMessage = nil
 
-        DispatchQueue.global(qos: .userInitiated).async {
-            let finalName = fileName.hasSuffix(".pdf") ? fileName : "\(fileName).pdf"
-            let exportedURL = PDFExporter.shared.exportTemporaryPDF(
-                images: images,
-                fileName: finalName,
-                pageSize: selectedPageSize,
-                quality: selectedQuality
-            )
+        let finalName = fileName.hasSuffix(".pdf") ? fileName : "\(fileName).pdf"
+        let pageSize = selectedPageSize
+        let quality = selectedQuality
+        let pageSnapshot = pages
+        let store = self.store
 
-            DispatchQueue.main.async {
+        Task {
+            // 影像解碼與 PDF 合成都在背景，期間 UI 保持可互動
+            let images = await store.loadImages(for: pageSnapshot)
+
+            guard images.count == pageSnapshot.count, !images.isEmpty else {
+                await MainActor.run {
+                    self.isExporting = false
+                    self.errorMessage = "部分頁面檔案遺失，請重新掃描後再匯出"
+                }
+                return
+            }
+
+            let exportedURL = await Task.detached(priority: .userInitiated) {
+                PDFExporter.shared.exportTemporaryPDF(
+                    images: images,
+                    fileName: finalName,
+                    pageSize: pageSize,
+                    quality: quality
+                )
+            }.value
+
+            await MainActor.run {
                 self.isExporting = false
                 if let url = exportedURL {
                     self.shareURL = url
                     self.showingShareActivity = true
+                } else {
+                    self.errorMessage = "PDF 產生失敗，請確認裝置儲存空間"
                 }
             }
         }

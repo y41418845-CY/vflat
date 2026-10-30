@@ -4,7 +4,7 @@ import SwiftUI
 import UIKit
 #endif
 
-/// 復刻圖一：單頁文件檢視、OCR 辨識與底部 6 大影像後處理工具頁面
+/// 復刻圖一：單頁文件檢視、OCR 辨識與底部影像後處理工具頁面
 /// 整合 OpenScan 6 種濾鏡即時切換列、手動放大鏡裁剪與 PDF 匯出
 public struct DocumentDetailView: View {
     @Environment(\.dismiss) private var dismiss
@@ -13,11 +13,12 @@ public struct DocumentDetailView: View {
     @State private var showingFilterSelector: Bool = false
     @State private var showingLoupeCropView: Bool = false
     @State private var showingPDFSheet: Bool = false
+    @State private var showingOCRResult: Bool = false
     @State private var activeDocument: DetectedDocument = DetectedDocument(
-        topLeft: CGPoint(x: 0.05, y: 0.05),
-        topRight: CGPoint(x: 0.95, y: 0.05),
-        bottomRight: CGPoint(x: 0.95, y: 0.95),
-        bottomLeft: CGPoint(x: 0.05, y: 0.95),
+        topLeft: CGPoint(x: 0.0, y: 0.0),
+        topRight: CGPoint(x: 1.0, y: 0.0),
+        bottomRight: CGPoint(x: 1.0, y: 1.0),
+        bottomLeft: CGPoint(x: 0.0, y: 1.0),
         confidence: 1.0
     )
 
@@ -25,9 +26,11 @@ public struct DocumentDetailView: View {
         self.viewModel = viewModel
     }
 
+    /// 目前檢視的頁面（永遠是佇列中的最後一頁）
+    private var currentPage: ScanPage? { viewModel.pages.last }
+
     public var body: some View {
         ZStack {
-            // 背景白底
             Color.white.ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -45,19 +48,20 @@ public struct DocumentDetailView: View {
 
                     Spacer()
 
-                    Text("\(viewModel.capturedPageCount) / \(max(viewModel.capturedPageCount, 1)) \(viewModel.currentFolder)")
-                        .font(.system(size: 17, weight: .bold))
+                    Text(viewModel.pageCount > 0
+                         ? "\(viewModel.pageCount) 頁 · \(viewModel.currentFolder)"
+                         : "尚無頁面 · \(viewModel.currentFolder)")
+                        .font(.system(size: 16, weight: .bold))
                         .foregroundColor(.black)
 
                     Spacer()
 
-                    Button(action: {
-                        showingPDFSheet = true
-                    }) {
+                    Button(action: { showingPDFSheet = true }) {
                         Image(systemName: "square.and.arrow.up")
                             .font(.system(size: 18, weight: .bold))
-                            .foregroundColor(.black)
+                            .foregroundColor(viewModel.pageCount > 0 ? .black : .gray.opacity(0.4))
                     }
+                    .disabled(viewModel.pageCount == 0)
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 10)
@@ -70,57 +74,65 @@ public struct DocumentDetailView: View {
                     Color(white: 0.96)
 
                     #if canImport(UIKit)
-                    if let image = viewModel.lastCapturedImage {
+                    if let image = viewModel.lastPreviewImage {
                         Image(uiImage: image)
                             .resizable()
                             .scaledToFit()
                             .shadow(color: .black.opacity(0.15), radius: 8, x: 0, y: 4)
                             .padding(16)
                     } else {
-                        // 範例表格模擬圖
                         VStack(spacing: 12) {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.white)
-                                .shadow(color: .black.opacity(0.12), radius: 6, x: 0, y: 3)
-                                .overlay(
-                                    VStack {
-                                        Text("冷氣開關記錄表 (示範文件)")
-                                            .font(.headline)
-                                            .foregroundColor(.black.opacity(0.8))
-                                            .padding(.top, 24)
-
-                                        Spacer()
-
-                                        Image(systemName: "doc.text")
-                                            .font(.system(size: 64))
-                                            .foregroundColor(.gray.opacity(0.4))
-
-                                        Spacer()
-                                    }
-                                )
-                                .padding(24)
+                            Image(systemName: "doc.text.magnifyingglass")
+                                .font(.system(size: 56))
+                                .foregroundColor(.gray.opacity(0.45))
+                            Text("回到相機拍下第一頁")
+                                .font(.system(size: 14))
+                                .foregroundColor(.gray)
                         }
                     }
                     #endif
 
+                    // 處理中遮罩
+                    if viewModel.isProcessingCapture {
+                        Color.black.opacity(0.25).ignoresSafeArea()
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                            .scaleEffect(1.4)
+                    }
+
                     // 懸浮「辨識文字」按鈕
-                    VStack {
-                        Spacer()
-                        Button(action: {}) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "viewfinder")
-                                    .font(.system(size: 15, weight: .bold))
-                                Text("辨識文字")
-                                    .font(.system(size: 15, weight: .bold))
+                    if viewModel.pageCount > 0 {
+                        VStack {
+                            Spacer()
+                            Button(action: {
+                                Task {
+                                    await viewModel.recognizeLastPageText()
+                                    if viewModel.lastOCRText != nil {
+                                        showingOCRResult = true
+                                    }
+                                }
+                            }) {
+                                HStack(spacing: 6) {
+                                    if viewModel.isRecognizingText {
+                                        ProgressView()
+                                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                                    } else {
+                                        Image(systemName: "viewfinder")
+                                            .font(.system(size: 15, weight: .bold))
+                                    }
+                                    Text(viewModel.isRecognizingText ? "辨識中…" : "辨識文字")
+                                        .font(.system(size: 15, weight: .bold))
+                                }
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 22)
+                                .padding(.vertical, 10)
+                                .background(Color(red: 0.22, green: 0.72, blue: 0.62))
+                                .clipShape(Capsule())
+                                .shadow(color: Color(red: 0.22, green: 0.72, blue: 0.62).opacity(0.4), radius: 8, y: 4)
                             }
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 22)
-                            .padding(.vertical, 10)
-                            .background(Color(red: 0.22, green: 0.72, blue: 0.62))
-                            .clipShape(Capsule())
-                            .shadow(color: Color(red: 0.22, green: 0.72, blue: 0.62).opacity(0.4), radius: 8, y: 4)
+                            .disabled(viewModel.isRecognizingText)
+                            .padding(.bottom, 20)
                         }
-                        .padding(.bottom, 20)
                     }
                 }
 
@@ -139,9 +151,9 @@ public struct DocumentDetailView: View {
                                             .foregroundColor(viewModel.selectedFilterMode == mode ? .white : .black)
                                             .frame(width: 40, height: 40)
                                             .background(
-                                                viewModel.selectedFilterMode == mode ?
-                                                Color(red: 0.22, green: 0.72, blue: 0.62) :
-                                                Color(white: 0.92)
+                                                viewModel.selectedFilterMode == mode
+                                                ? Color(red: 0.22, green: 0.72, blue: 0.62)
+                                                : Color(white: 0.92)
                                             )
                                             .clipShape(Circle())
 
@@ -150,6 +162,7 @@ public struct DocumentDetailView: View {
                                             .foregroundColor(.black)
                                     }
                                 }
+                                .disabled(viewModel.pageCount == 0)
                             }
                         }
                         .padding(.horizontal, 16)
@@ -162,16 +175,14 @@ public struct DocumentDetailView: View {
 
                 Divider()
 
-                // 4. 底部 6 大功能操作列 (分享、裁剪、人工智慧增強器、簽名、重新掃描、刪除)
+                // 4. 底部功能操作列
                 HStack(spacing: 0) {
                     bottomToolButton(title: "分享", icon: "square.and.arrow.up") {
                         showingPDFSheet = true
                     }
                     Spacer()
                     bottomToolButton(title: "裁剪", icon: "crop") {
-                        if let currentDoc = viewModel.detectedDocument {
-                            activeDocument = currentDoc
-                        }
+                        activeDocument = currentPage?.document ?? viewModel.detectedDocument ?? activeDocument
                         showingLoupeCropView = true
                     }
                     Spacer()
@@ -181,23 +192,25 @@ public struct DocumentDetailView: View {
                         }
                     }
                     Spacer()
-                    bottomToolButton(title: "簽名", icon: "pencil.tip.crop.circle") {}
+                    bottomToolButton(title: "文字辨識", icon: "text.viewfinder") {
+                        Task {
+                            await viewModel.recognizeLastPageText()
+                            if viewModel.lastOCRText != nil {
+                                showingOCRResult = true
+                            }
+                        }
+                    }
                     Spacer()
                     bottomToolButton(title: "重新掃描", icon: "arrow.clockwise") {
+                        viewModel.showingDocumentDetail = false
                         dismiss()
                     }
                     Spacer()
                     bottomToolButton(title: "刪除", icon: "trash") {
-                        #if canImport(UIKit)
-                        if !viewModel.capturedImages.isEmpty {
-                            _ = viewModel.capturedImages.popLast()
-                            viewModel.lastCapturedImage = viewModel.capturedImages.last
+                        viewModel.deleteLastPage()
+                        if viewModel.pageCount == 0 {
+                            dismiss()
                         }
-                        #endif
-                        if viewModel.capturedPageCount > 0 {
-                            viewModel.capturedPageCount -= 1
-                        }
-                        dismiss()
                     }
                 }
                 .padding(.horizontal, 16)
@@ -207,28 +220,27 @@ public struct DocumentDetailView: View {
         }
         #if canImport(UIKit)
         .fullScreenCover(isPresented: $showingLoupeCropView) {
-            if let img = viewModel.lastRawCapturedImage ?? viewModel.lastCapturedImage {
-                LoupeCropView(image: img, document: $activeDocument) { newDoc in
-                    viewModel.detectedDocument = newDoc
-                    if let raw = viewModel.lastRawCapturedImage {
-                        let cropped = DocumentRectifier.shared.autoProcessCapture(
-                            image: raw,
-                            document: newDoc,
-                            autoCrop: true,
-                            enableDewarp: viewModel.presetCurveCorrection,
-                            filterMode: viewModel.selectedFilterMode
-                        )
-                        viewModel.lastCapturedImage = cropped
-                    }
+            if let source = viewModel.lastRawPageImage
+                ?? currentPage.flatMap({ viewModel.pageStore.rawImage(for: $0) })
+                ?? viewModel.lastPreviewImage {
+                LoupeCropView(image: source, document: $activeDocument) { newDoc in
+                    viewModel.applyCrop(document: newDoc)
                 }
             }
         }
         .sheet(isPresented: $showingPDFSheet) {
             PDFExportSheet(
-                images: viewModel.capturedImages.isEmpty ?
-                    (viewModel.lastCapturedImage != nil ? [viewModel.lastCapturedImage!] : []) :
-                    viewModel.capturedImages,
+                pages: viewModel.pages,
+                store: viewModel.pageStore,
                 defaultPrefix: viewModel.currentFolder
+            )
+        }
+        .sheet(isPresented: $showingOCRResult) {
+            OCRResultSheet(
+                text: viewModel.lastOCRText ?? "",
+                onCopy: {
+                    UIPasteboard.general.string = viewModel.lastOCRText
+                }
             )
         }
         #endif
@@ -251,5 +263,43 @@ public struct DocumentDetailView: View {
             }
             .frame(minWidth: 46)
         }
+        .disabled(viewModel.pageCount == 0 && icon != "arrow.clockwise")
+        .opacity(viewModel.pageCount == 0 && icon != "arrow.clockwise" ? 0.35 : 1)
     }
 }
+
+#if canImport(UIKit)
+/// OCR 辨識結果檢視（可全選複製）
+public struct OCRResultSheet: View {
+    public let text: String
+    public let onCopy: () -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    public var body: some View {
+        NavigationView {
+            ScrollView {
+                Text(text.isEmpty ? "未辨識到文字" : text)
+                    .font(.system(size: 15, design: .monospaced))
+                    .foregroundColor(.black)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .textSelection(.enabled)
+            }
+            .navigationTitle("辨識結果")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("關閉") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("複製") {
+                        onCopy()
+                        dismiss()
+                    }
+                    .disabled(text.isEmpty)
+                }
+            }
+        }
+    }
+}
+#endif

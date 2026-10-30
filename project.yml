@@ -4,6 +4,13 @@ options:
   deploymentTarget:
     iOS: "16.0"
   xcodeVersion: "16.0"
+  groupSortPosition: top
+
+settings:
+  base:
+    MARKETING_VERSION: "1.2.0"
+    CURRENT_PROJECT_VERSION: "120"
+    SWIFT_VERSION: "5.9"
 
 targets:
   vFlat:
@@ -18,7 +25,11 @@ targets:
       path: ios/Info.plist
       properties:
         CFBundleDisplayName: "vFlat Scan"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         NSCameraUsageDescription: "需要使用您的相機權限以進行書本掃描、邊緣偵測與即時曲面展平。"
+        NSPhotoLibraryUsageDescription: "需要使用您的相片圖庫權限以匯入外部文件影像進行文字辨識與批次裁剪。"
+        NSPhotoLibraryAddUsageDescription: "需要將掃描完成的文件影像儲存到您的相片圖庫。"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -26,7 +37,6 @@ targets:
       base:
         PRODUCT_NAME: "vFlat"
         PRODUCT_BUNDLE_IDENTIFIER: "com.voyagerx.ios.vflat"
-        SWIFT_VERSION: "5.9"
         ENABLE_BITCODE: NO
         CODE_SIGNING_ALLOWED: NO
         CODE_SIGNING_REQUIRED: NO
@@ -34,5 +44,39 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_FILE: ios/Info.plist
         INFOPLIST_KEY_NSCameraUsageDescription: "需要使用您的相機權限以進行書本掃描、邊緣偵測與即時曲面展平。"
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "需要使用您的相片圖庫權限以匯入外部文件影像進行文字辨識與批次裁剪。"
+        INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription: "需要將掃描完成的文件影像儲存到您的相片圖庫。"
         INFOPLIST_KEY_CFBundleDisplayName: "vFlat Scan"
 
+  vFlatTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: ios/Tests/DewarpTests
+    dependencies:
+      - target: vFlat
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "com.voyagerx.ios.vflat.tests"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/vFlat.app/vFlat"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+
+schemes:
+  vFlat:
+    build:
+      targets:
+        vFlat: all
+        vFlatTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - vFlatTests
+    archive:
+      config: Release

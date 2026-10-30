@@ -20,14 +20,16 @@ public final class MetalDewarpRenderer: NSObject, MTKViewDelegate {
 
     // 零拷貝紋理快取 (Zero-copy CoreVideo Texture Cache)
     private var textureCache: CVMetalTextureCache?
+    /// 保留 CVMetalTexture 參照，確保 MTLTexture 在 GPU 使用期間仍有效
+    private var currentCVTexture: CVMetalTexture?
     private var currentTexture: MTLTexture?
 
     // 著色器全域參數
     private var uniforms = DewarpUniforms(
         viewportSize: SIMD2<Float>(1.0, 1.0),
-        dewarpStrength: 1.0,
+        dewarpStrength: 0.0,
         edgeFeather: 0.02,
-        renderMode: 1
+        renderMode: 0
     )
 
     private let meshBuilder = DewarpMesh()
@@ -48,29 +50,37 @@ public final class MetalDewarpRenderer: NSObject, MTKViewDelegate {
         metalView.framebufferOnly = true
         metalView.isPaused = false
         metalView.enableSetNeedsDisplay = false
+        metalView.clearColor = MTLClearColorMake(0, 0, 0, 1)
 
-        CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &textureCache)
+        // 真正啟用 60fps 預覽（實際上限仍由裝置與相機格式決定）
+        #if canImport(UIKit)
+        metalView.preferredFramesPerSecond = min(60, UIScreen.main.maximumFramesPerSecond)
+        #else
+        metalView.preferredFramesPerSecond = 60
+        #endif
+
+        let status = CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &textureCache)
+        if status != kCVReturnSuccess {
+            print("[MetalDewarpRenderer] CVMetalTextureCache 建立失敗: \(status)")
+        }
+
         setupPipeline()
         setupDefaultMesh()
     }
 
-    private func setupPipeline() {
-        let library: MTLLibrary?
-        if let defaultLib = device.makeDefaultLibrary() {
-            library = defaultLib
-        } else if let bundleLib = try? device.makeDefaultLibrary(bundle: Bundle.main) {
-            library = bundleLib
-        } else {
-            library = nil
+    deinit {
+        if let textureCache = textureCache {
+            CVMetalTextureCacheFlush(textureCache, 0)
         }
+    }
 
-        guard let library = library else {
-            print("[MetalDewarpRenderer] 無法載入預設 Metal Library，請確認 Shaders.metal 已包含在專案中")
+    private func setupPipeline() {
+        guard let library = MetalLibraryProvider.makeLibrary(device: device),
+              let vertexFunction = library.makeFunction(name: "dewarpVertexShader"),
+              let fragmentFunction = library.makeFunction(name: "dewarpFragmentShader") else {
+            print("[MetalDewarpRenderer] 無法載入 Metal 著色器函式")
             return
         }
-
-        let vertexFunction = library.makeFunction(name: "dewarpVertexShader")
-        let fragmentFunction = library.makeFunction(name: "dewarpFragmentShader")
 
         let pipelineDescriptor = MTLRenderPipelineDescriptor()
         pipelineDescriptor.label = "vFlat.DewarpPipeline"
@@ -78,7 +88,7 @@ public final class MetalDewarpRenderer: NSObject, MTKViewDelegate {
         pipelineDescriptor.fragmentFunction = fragmentFunction
         pipelineDescriptor.colorAttachments[0].pixelFormat = .bgra8Unorm
 
-        // 啟用透明度混合
+        // 啟用透明度混合（邊緣羽化用）
         pipelineDescriptor.colorAttachments[0].isBlendingEnabled = true
         pipelineDescriptor.colorAttachments[0].rgbBlendOperation = .add
         pipelineDescriptor.colorAttachments[0].alphaBlendOperation = .add
@@ -95,7 +105,6 @@ public final class MetalDewarpRenderer: NSObject, MTKViewDelegate {
     }
 
     private func setupDefaultMesh() {
-        // 預設載入平整網格
         let flatGrid = DewarpGeometry.makeFlatGrid()
         updateMesh(with: flatGrid)
 
@@ -112,6 +121,7 @@ public final class MetalDewarpRenderer: NSObject, MTKViewDelegate {
     public func updateMesh(with curvedPoints: [SIMD2<Float>]) {
         let vertices = meshBuilder.generateVertices(from: curvedPoints)
         let bufferSize = vertices.count * MemoryLayout<DewarpVertexData>.stride
+        guard bufferSize > 0 else { return }
 
         lock.lock()
         defer { lock.unlock() }
@@ -133,6 +143,7 @@ public final class MetalDewarpRenderer: NSObject, MTKViewDelegate {
 
         let width = CVPixelBufferGetWidth(pixelBuffer)
         let height = CVPixelBufferGetHeight(pixelBuffer)
+        guard width > 0, height > 0 else { return }
 
         var cvMetalTexture: CVMetalTexture?
         let status = CVMetalTextureCacheCreateTextureFromImage(
@@ -147,11 +158,17 @@ public final class MetalDewarpRenderer: NSObject, MTKViewDelegate {
             &cvMetalTexture
         )
 
-        if status == kCVReturnSuccess, let cvMetalTexture = cvMetalTexture {
-            lock.lock()
-            self.currentTexture = CVMetalTextureGetTexture(cvMetalTexture)
-            lock.unlock()
-        }
+        guard status == kCVReturnSuccess,
+              let cvTexture = cvMetalTexture,
+              let texture = CVMetalTextureGetTexture(cvTexture) else { return }
+
+        lock.lock()
+        self.currentCVTexture = cvTexture
+        self.currentTexture = texture
+        lock.unlock()
+
+        // 釋放上一幀已被替換掉的快取紋理，避免長期累積佔用記憶體
+        CVMetalTextureCacheFlush(textureCache, 0)
     }
 
     /// 設定展平強度與渲染模式 (0: 原圖, 1: 展平)
@@ -163,6 +180,7 @@ public final class MetalDewarpRenderer: NSObject, MTKViewDelegate {
     }
 
     // MARK: - MTKViewDelegate
+
     public func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         lock.lock()
         uniforms.viewportSize = SIMD2<Float>(Float(size.width), Float(size.height))
@@ -170,31 +188,39 @@ public final class MetalDewarpRenderer: NSObject, MTKViewDelegate {
     }
 
     public func draw(in view: MTKView) {
+        guard let pipelineState = self.pipelineState else { return }
+
+        // 只在鎖內複製參照，避免把整個 GPU 編碼流程都鎖住
         lock.lock()
-        guard let pipelineState = self.pipelineState,
-              let vertexBuffer = self.vertexBuffer,
-              let indexBuffer = self.indexBuffer,
-              let texture = self.currentTexture,
+        let vertexBuffer = self.vertexBuffer
+        let indexBuffer = self.indexBuffer
+        let texture = self.currentTexture
+        let currentUniforms = self.uniforms
+        let currentIndexCount = self.indexCount
+        lock.unlock()
+
+        guard let vertexBuffer = vertexBuffer,
+              let indexBuffer = indexBuffer,
+              let texture = texture,
+              currentIndexCount > 0,
               let renderPassDescriptor = view.currentRenderPassDescriptor,
               let drawable = view.currentDrawable,
               let commandBuffer = commandQueue.makeCommandBuffer(),
               let renderEncoder = commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else {
-            lock.unlock()
             return
         }
 
-        var currentUniforms = uniforms
-        lock.unlock()
+        var uniformsToUse = currentUniforms
 
         renderEncoder.setRenderPipelineState(pipelineState)
         renderEncoder.setVertexBuffer(vertexBuffer, offset: 0, index: 0)
-        renderEncoder.setVertexBytes(&currentUniforms, length: MemoryLayout<DewarpUniforms>.stride, index: 1)
+        renderEncoder.setVertexBytes(&uniformsToUse, length: MemoryLayout<DewarpUniforms>.stride, index: 1)
         renderEncoder.setFragmentTexture(texture, index: 0)
-        renderEncoder.setFragmentBytes(&currentUniforms, length: MemoryLayout<DewarpUniforms>.stride, index: 1)
+        renderEncoder.setFragmentBytes(&uniformsToUse, length: MemoryLayout<DewarpUniforms>.stride, index: 1)
 
         renderEncoder.drawIndexedPrimitives(
             type: .triangle,
-            indexCount: indexCount,
+            indexCount: currentIndexCount,
             indexType: .uint32,
             indexBuffer: indexBuffer,
             indexBufferOffset: 0

@@ -15,15 +15,17 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>1.2.0</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+    <string>120</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>NSCameraUsageDescription</key>
     <string>需要使用您的相機權限以進行書本掃描、邊緣偵測與即時曲面展平。</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>需要使用您的相片圖庫權限以匯入外部文件影像進行文字辨識與批次裁剪。</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>需要將掃描完成的文件影像儲存到您的相片圖庫。</string>
     <key>UIApplicationSceneManifest</key>
     <dict>
         <key>UIApplicationSupportsMultipleScenes</key>
