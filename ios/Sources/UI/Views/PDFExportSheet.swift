@@ -33,6 +33,10 @@ public struct PDFExportSheet: View {
         self._fileName = State(initialValue: initialName)
     }
 
+    public init(viewModel: ScannerViewModel) {
+        self.init(pages: viewModel.pages, store: viewModel.pageStore, defaultPrefix: viewModel.currentFolder)
+    }
+
     public var body: some View {
         NavigationView {
             Form {

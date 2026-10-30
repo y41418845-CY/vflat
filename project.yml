@@ -8,8 +8,8 @@ options:
 
 settings:
   base:
-    MARKETING_VERSION: "1.5.9"
-    CURRENT_PROJECT_VERSION: "159"
+    MARKETING_VERSION: "1.6.0"
+    CURRENT_PROJECT_VERSION: "160"
     SWIFT_VERSION: "5.9"
 
 targets:

@@ -1,9 +1,9 @@
 # AI Agent 專案交接與工程維護手冊 (Agent Handover Document)
 
 > **專案名稱**：vFlat 逆向工程與 iOS 原生重構專案 (`vFlat-iOS`)  
-> **專案版本**：`v1.5.9`（Build `159`）  
+> **專案版本**：`v1.6.0`（Build `160`）  
 > **最後更新時間**：2026-10-30  
-> **遠端儲存庫**：`https://github.com/y41418845-CY/vflat`（預設分支：`master`）  
+> **遠端儲存庫**：`https://github.com/y41418845-CY/vflat`（當前分支：`feature/authentic-replica-ui`，預設分支：`master`）  
 > **本地工作目錄**：`g:\我的雲端硬碟\工具程式\vflat\`  
 > **接手重點提示**：請新進 AI Agent 優先閱讀本手冊與全域規範。本專案嚴格遵守「無外掛純原生（Swift / Metal / Vision / PDFKit）」、「零廣告零聯網 100% 離線隱私」與「60fps 零延遲」標準；**CI 建置路徑採用 GitHub Actions (macOS-15 runner + XcodeGen)**。
 
@@ -19,6 +19,9 @@
 2. **iPhone 原生獨立重構 (`vFlat-iOS`)**：
    - 採用現代 Apple 原生技術棧（SwiftUI + AVFoundation + Metal + Vision + PDFKit），達到與原廠旗鼓相當甚至超越的清晰度與拉平效果。
    - 保證 **0 MB 外部模型依賴**（純演算法優化）、極輕安裝包（不到 15MB vs 原廠 158MB）、秒開相機、**終身免費且無使用限制**。
+3. **1:1 原廠旗艦 UI 與商業限制徹底解除**：
+   - 完整復刻原廠書庫管理、多資料夾架構、左右水平翻頁閱讀器、網格密度切換、多選批次操作。
+   - 解鎖 Auto-Scan 自動捕捉、無限次數離線 OCR、無限制 AI 魔法增強，零付費牆、零廣告干擾。
 
 ---
 
@@ -49,7 +52,7 @@ ios/
 │   │   │   ├── FingerRemovalProcessor.swift    # 周邊 12% YCbCr 膚色空間判定與泊松平滑
 │   │   │   └── HandwritingRemovalProcessor.swift# 高動態色彩飽和度過濾 (除彩筆、保黑字)
 │   │   ├── Rectification/           # DocumentRectifier.swift：透視拉正 + 6 大色彩濾鏡
-│   │   ├── Storage/                 # ScanPageStore.swift：JPEG 磁碟落盤、JSON 索引與 30天垃圾桶
+│   │   ├── Storage/                 # ScanPageStore.swift：JPEG 磁碟落盤、JSON 索引、資料夾管理與 30天垃圾桶
 │   │   ├── OCR/                     # OCRService.swift：Apple 原生 Vision 繁簡中英離線辨識
 │   │   ├── Export/                  # 匯出服務
 │   │   │   ├── DocumentNamingService.swift # 時間戳智慧命名器
@@ -58,17 +61,20 @@ ios/
 │   │       ├── Shaders.metal               # 頂點與片段著色器 (弧長拉平、邊緣羽化)
 │   │       ├── MetalOffscreenDewarper.swift# 離屏高畫質 25x25 網格 GPU 展開
 │   │       └── MetalDewarpRenderer.swift   # MTKView 60fps 即時取景渲染器
-│   ├── UI/                          # 現代 SwiftUI 介面層
+│   ├── UI/                          # 現代 SwiftUI 介面層 (對齊原廠 1:1)
 │   │   ├── Views/
-│   │   │   ├── CameraScanView.swift        # 主相機取景畫面
-│   │   │   ├── DocumentDetailView.swift    # 單頁檢視、AI 旗艦橫列、JPG/PDF 分享
+│   │   │   ├── LibraryView.swift           # 原廠首頁書庫 (多資料夾、網格、多選批次列、相機大圓鈕)
+│   │   │   ├── PageSwipeDetailView.swift   # 原廠 1:1 左右水平翻頁閱讀器 (縮放、AI、濾鏡、OCR、匯出)
+│   │   │   ├── MoveFolderSheet.swift       # 跨資料夾移動與即時新增資料夾彈窗
+│   │   │   ├── CameraScanView.swift        # 主相機取景畫面 (含返回書庫、完成 Done、Auto Scan)
+│   │   │   ├── DocumentDetailView.swift    # 備援單頁檢視
 │   │   │   ├── LoupeCropView.swift         # 4 角點微調與 2.2x 放大鏡
 │   │   │   ├── PDFExportSheet.swift        # 完整對齊原廠之 PDF 匯出面板
 │   │   │   ├── TrashBinView.swift          # 垃圾桶（最近刪除）檢視與一鍵復原
-│   │   │   └── SettingsView.swift          # 四大項目全對齊設定中心
+│   │   │   └── SettingsView.swift          # 四大項目全對齊設定中心 (去除所有商業限制)
 │   │   └── ViewModels/
 │   │       └── ScannerViewModel.swift      # 全域主協調器 (含極致全開 Ultra Scan 管線)
-│   └── vFlatApp/                    # 應用程式進入點 (vFlatApp.swift)
+│   └── vFlatApp/                    # 應用程式進入點 (vFlatApp.swift -> LibraryView)
 ```
 
 ---
@@ -91,6 +97,10 @@ ios/
 
 | 功能模組 | 完成狀態 | 驗證機制與成效 |
 | :--- | :---: | :--- |
+| **原廠 1:1 書庫首頁 (LibraryView)** | [x] 已完成 | 支援多資料夾切換、建立/重命名/刪除、2列/3列網格切換、搜尋、排序。 |
+| **左右水平翻頁閱讀器 (PageSwipe)** | [x] 已完成 | 支援像電子書一樣左右手勢翻頁、雙指無級縮放、底部縮圖條快速導覽。 |
+| **多選批次管理 (Batch Operations)** | [x] 已完成 | 支援全選/多選，批次匯出 PDF、批次存入相簿 (.jpg)、批次移動、批次刪除。 |
+| **去除商業限制 (Unrestricted)** | [x] 已完成 | Auto-Scan 自動捕捉全免、OCR 零扣點無限次、AI 魔法修復全解鎖、零廣告。 |
 | **0.5x 超廣角視野對齊** | [x] 已完成 | 相機預設以超廣角取景，近距離拍攝畫面不晃動、邊框穩穩鎖定。 |
 | **動態 25×25 自由曲面展平** | [x] 已完成 | `DynamicDewarpPredictor` 自動估算中縫曲率，GPU 著色器精準展開。 |
 | **手機擋光陰影消除** | [x] 已完成 | `ShadowRemovalProcessor` 利用 Retinex 反射率重構將暗部提亮為純白。 |
@@ -109,9 +119,7 @@ ios/
 1. **優先級 High：實體 iPhone 側載安裝與真機體驗驗證**
    - 下載 GitHub Actions 編譯生成的 `vFlat.ipa`，透過 AltStore、SideStore 或 TrollStore 安裝至實體 iPhone。
    - 拿實體厚重書籍測試「極致全開」在不同光照下的展平與去陰影表現。
-2. **優先級 Medium：多資料夾與標籤分類管理**
-   - 目前頁面儲存在單一 `currentFolder`，未來可增加資料夾建立、重新命名與分頁管理介面。
-3. **優先級 Low：區域網路 Web 傳送至電腦 (Scan to PC)**
+2. **優先級 Low：區域網路 Web 傳送至電腦 (Scan to PC)**
    - 實作極輕量之本機 Bonjour / HTTP 伺服器，讓同 Wi-Fi 下的電腦瀏覽器可一鍵打包下載整本書籍的 JPG 或 PDF。
 
 ---

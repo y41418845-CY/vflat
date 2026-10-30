@@ -28,6 +28,26 @@ public struct SettingsView: View {
     public var body: some View {
         NavigationView {
             Form {
+                // 0. 旗艦功能解鎖狀態 (去除所有商業限制)
+                Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "checkmark.seal.fill")
+                                .font(.system(size: 22))
+                                .foregroundColor(Color(red: 0.08, green: 0.78, blue: 0.44))
+                            Text("旗艦功能全解鎖 (無限制版)")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(.primary)
+                        }
+
+                        Text("已徹底去除原廠商業訂閱、每日 OCR 配額、浮水印與廣告干擾。所有 25×25 自由曲面展開、AI 去陰影去手指、可搜尋 PDF 匯出均無限次數使用，100% 本地離線保護隱私。")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                            .lineSpacing(3)
+                    }
+                    .padding(.vertical, 4)
+                }
+
                 // 1. 相機與硬體拍攝設定 (對齊原廠 Camera & Lens Settings)
                 Section(
                     header: Text("項目 1. 相機與硬體拍攝設定"),

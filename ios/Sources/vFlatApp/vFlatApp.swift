@@ -10,8 +10,7 @@ public struct vFlatApp: App {
 
     public var body: some Scene {
         WindowGroup {
-            CameraScanView()
-                .preferredColorScheme(.dark)
+            LibraryView()
         }
     }
 }

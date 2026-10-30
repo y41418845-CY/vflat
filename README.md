@@ -1,13 +1,13 @@
 # vFlat 逆向工程與 iOS 原生重構專案 (vFlat-iOS)
 
-![Version](https://img.shields.io/badge/version-v1.5.9-blue.svg)
+![Version](https://img.shields.io/badge/version-v1.6.0-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-iOS%2016.0%2B-black.svg)
 ![Swift](https://img.shields.io/badge/Swift-5.9-orange.svg)
 ![Metal](https://img.shields.io/badge/Metal-60fps-red.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 專為擺脫原廠商業訂閱綁架、高額付費牆、廣告干擾與雲端外洩風險而打造。  
-基於現代 Apple 原生技術棧（SwiftUI + AVFoundation + Metal + Vision + PDFKit），達到與原廠旗鼓相當甚至超越的書本拉平與掃描清晰度，且具備 **100% 離線隱私、零廣告、終身完全免費**！
+全新重塑 **1:1 原廠旗艦 UI**（書庫首頁、多資料夾分類、左右水平翻頁閱讀器、多選批次匯出、無限制 Auto-Scan），達到與原廠旗鼓相當甚至超越的書本拉平與掃描清晰度，且具備 **100% 離線隱私、零廣告、終身完全免費**！
 
 詳細技術交接手冊與底層二進位逆向細節請參閱：[`AGENT_HANDOVER.md`](AGENT_HANDOVER.md)
 
@@ -15,7 +15,14 @@
 
 ## 核心亮點與特色
 
-### 1. 0.5× 超廣角取景視野（對齊原廠真實距離感）
+### 1. 原廠 1:1 書庫、資料夾與多選批次管理 (Library & Folders)
+- **多資料夾系統**：支援建立新資料夾、重命名、刪除與跨資料夾移動頁面。
+- **2 列 / 3 列網格排列**：每張卡片附帶精緻頁碼標籤，點擊直接進入翻頁檢視。
+- **多選批次操作**：一鍵全選、批次匯出合併 PDF、批次存入相簿 (.jpg)、批次移動與批次移至垃圾桶。
+- **左右水平翻頁閱讀器 (Page Swipe)**：仿電子書左右滑動翻閱、雙指放大縮小、五大後處理工具（裁剪、AI 增強、濾鏡、OCR、刪除）。
+- **完全去除商業限制**：Auto-Scan 自動掃描、每日 OCR 配額、AI 增強全部永久解鎖免費！
+
+### 2. 0.5× 超廣角取景視野（對齊原廠真實距離感）
 - **相機三鏡頭切換**：
   - **超廣角相機**（推薦 0.5x，開闊視野，徹底解決近距離對焦模糊與框線亂跳問題）
   - **一般相機**（標準 1x 廣角）

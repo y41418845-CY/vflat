@@ -39,6 +39,7 @@ public struct MetalDewarpViewRepresentable: UIViewRepresentable {
 /// 主掃描相機畫面 (SwiftUI)
 /// 完整對齊原版 iPhone vFlat UI (圖一、圖二) 並整合 OpenScan 5 大核心功能
 public struct CameraScanView: View {
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = ScannerViewModel()
 
     public init() {}
@@ -161,8 +162,26 @@ public struct CameraScanView: View {
 
             // 6. 頂部工具列與底部控制層
             VStack(spacing: 0) {
-                // 頂部主導航列 (資料庫、Upgrade、設定)
+                // 頂部主導航列 (返回書庫、匯出 PDF、設定)
                 HStack(spacing: 12) {
+                    Button(action: {
+                        dismiss()
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 16, weight: .bold))
+                            Text("書庫")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(Color.black.opacity(0.45))
+                        .clipShape(Capsule())
+                    }
+
+                    Spacer()
+
                     Button(action: {
                         viewModel.showingPDFExportSheet = true
                     }) {
@@ -174,28 +193,26 @@ public struct CameraScanView: View {
                             if viewModel.pageCount > 0 {
                                 Text("\(viewModel.pageCount)")
                                     .font(.system(size: 12, weight: .bold))
-                                    .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
+                                    .foregroundColor(Color(red: 0.08, green: 0.78, blue: 0.44))
                             }
                         }
                         .foregroundColor(.white)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
-                        .background(Color.white.opacity(0.2))
+                        .background(Color.black.opacity(0.45))
                         .clipShape(Capsule())
                     }
                     .disabled(viewModel.pageCount == 0)
                     .opacity(viewModel.pageCount == 0 ? 0.5 : 1)
 
-                    Spacer()
-
                     Button(action: {
                         viewModel.showingSettings = true
                     }) {
                         Image(systemName: "gearshape")
-                            .font(.system(size: 20))
+                            .font(.system(size: 18))
                             .foregroundColor(.white)
                             .padding(8)
-                            .background(Color.white.opacity(0.18))
+                            .background(Color.black.opacity(0.45))
                             .clipShape(Circle())
                     }
                 }
@@ -276,7 +293,9 @@ public struct CameraScanView: View {
                 Spacer()
 
                 // 底部控制列
-                ScanControlBar(viewModel: viewModel)
+                ScanControlBar(viewModel: viewModel, onDone: {
+                    dismiss()
+                })
             }
 
             // 7. 錯誤提示橫幅
@@ -311,7 +330,7 @@ public struct CameraScanView: View {
             }
         }
         .fullScreenCover(isPresented: $viewModel.showingDocumentDetail) {
-            DocumentDetailView(viewModel: viewModel)
+            PageSwipeDetailView(viewModel: viewModel)
         }
         .fullScreenCover(isPresented: $viewModel.showingPhotoPicker) {
             PhotoImportPickerView(viewModel: viewModel)
@@ -321,11 +340,7 @@ public struct CameraScanView: View {
         }
         .sheet(isPresented: $viewModel.showingPDFExportSheet) {
             #if canImport(UIKit)
-            PDFExportSheet(
-                pages: viewModel.pages,
-                store: viewModel.pageStore,
-                defaultPrefix: viewModel.currentFolder
-            )
+            PDFExportSheet(viewModel: viewModel)
             #endif
         }
         .task {

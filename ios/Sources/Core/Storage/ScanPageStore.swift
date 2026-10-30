@@ -9,6 +9,8 @@ import ImageIO
 public struct ScanPage: Identifiable, Codable, Equatable {
     public let id: UUID
     public var createdAt: Date
+    /// 所屬資料夾 ID (nil 或 defaultId 表示預設資料夾)
+    public var folderId: UUID?
     /// 已上濾鏡、可直接顯示／匯出的 JPEG 檔名
     public var processedFileName: String
     /// 已裁切但**未上濾鏡**的 JPEG 檔名，供切換濾鏡或重新裁切時重用
@@ -21,6 +23,7 @@ public struct ScanPage: Identifiable, Codable, Equatable {
     public init(
         id: UUID = UUID(),
         createdAt: Date = Date(),
+        folderId: UUID? = nil,
         processedFileName: String,
         rawFileName: String? = nil,
         filterModeRaw: String = DocumentFilterMode.auto.rawValue,
@@ -29,6 +32,7 @@ public struct ScanPage: Identifiable, Codable, Equatable {
     ) {
         self.id = id
         self.createdAt = createdAt
+        self.folderId = folderId
         self.processedFileName = processedFileName
         self.rawFileName = rawFileName
         self.filterModeRaw = filterModeRaw
@@ -62,6 +66,26 @@ public struct ScanPage: Identifiable, Codable, Equatable {
     }
 }
 
+/// 書籍 / 文件夾管理模型 (對齊原廠 All Folders 架構)
+public struct ScanFolder: Identifiable, Codable, Equatable, Hashable {
+    public let id: UUID
+    public var name: String
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(id: UUID = UUID(), name: String, createdAt: Date = Date(), updatedAt: Date = Date()) {
+        self.id = id
+        self.name = name
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    public static let defaultId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+    public static func defaultFolder() -> ScanFolder {
+        ScanFolder(id: defaultId, name: "預設資料夾")
+    }
+}
+
 /// 垃圾桶（最近刪除）暫存項目，保留 30 天，提供復原與徹底清除
 public struct TrashPage: Identifiable, Codable, Equatable {
     public var id: UUID { page.id }
@@ -88,11 +112,14 @@ public struct TrashPage: Identifiable, Codable, Equatable {
 public final class ScanPageStore: ObservableObject {
     @Published public private(set) var pages: [ScanPage] = []
     @Published public private(set) var trashPages: [TrashPage] = []
+    @Published public private(set) var folders: [ScanFolder] = []
+    @Published public var currentFolderId: UUID = ScanFolder.defaultId
 
     public let rootURL: URL
     private var thumbnailCache: [UUID: UIImage] = [:]
     private let indexFileName = "index.json"
     private let trashIndexFileName = "trash_index.json"
+    private let folderIndexFileName = "folders.json"
 
     public init(directoryName: String = "Scans") {
         let base = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
@@ -104,6 +131,26 @@ public final class ScanPageStore: ObservableObject {
     public var lastPage: ScanPage? { pages.last }
     public var count: Int { pages.count }
 
+    public var currentFolder: ScanFolder {
+        folders.first(where: { $0.id == currentFolderId }) ?? ScanFolder.defaultFolder()
+    }
+
+    public var currentFolderName: String {
+        currentFolder.name
+    }
+
+    /// 取得特定資料夾下的頁面列表 (nil 代表預設資料夾)
+    public func pages(in folderId: UUID? = nil) -> [ScanPage] {
+        let targetId = folderId ?? currentFolderId
+        return pages.filter {
+            if targetId == ScanFolder.defaultId {
+                return $0.folderId == nil || $0.folderId == ScanFolder.defaultId
+            } else {
+                return $0.folderId == targetId
+            }
+        }
+    }
+
     // MARK: - 載入 / 索引
 
     private var indexURL: URL {
@@ -114,12 +161,29 @@ public final class ScanPageStore: ObservableObject {
         rootURL.appendingPathComponent(trashIndexFileName)
     }
 
+    private var folderIndexURL: URL {
+        rootURL.appendingPathComponent(folderIndexFileName)
+    }
+
     private func fileURL(_ fileName: String) -> URL {
         rootURL.appendingPathComponent(fileName)
     }
 
-    /// 從磁碟載入索引與垃圾桶紀錄，並自動過期清除超過 30 天的垃圾檔案
+    /// 從磁碟載入索引、資料夾與垃圾桶紀錄，並自動過期清除超過 30 天的垃圾檔案
     public func load() {
+        // 1. 載入資料夾
+        if let folderData = try? Data(contentsOf: folderIndexURL),
+           let decodedFolders = try? JSONDecoder().decode([ScanFolder].self, from: folderData),
+           !decodedFolders.isEmpty {
+            folders = decodedFolders
+        } else {
+            folders = [ScanFolder.defaultFolder()]
+        }
+        if !folders.contains(where: { $0.id == currentFolderId }) {
+            currentFolderId = folders.first?.id ?? ScanFolder.defaultId
+        }
+
+        // 2. 載入掃描頁面
         if let data = try? Data(contentsOf: indexURL),
            let decoded = try? JSONDecoder().decode([ScanPage].self, from: data) {
             pages = decoded.filter { FileManager.default.fileExists(atPath: fileURL($0.processedFileName).path) }
@@ -127,7 +191,7 @@ public final class ScanPageStore: ObservableObject {
             pages = []
         }
 
-        // 載入垃圾桶
+        // 3. 載入垃圾桶
         if let trashData = try? Data(contentsOf: trashIndexURL),
            let decodedTrash = try? JSONDecoder().decode([TrashPage].self, from: trashData) {
             var validTrash: [TrashPage] = []
@@ -176,6 +240,23 @@ public final class ScanPageStore: ObservableObject {
         }
     }
 
+    private func persistFolderIndex() {
+        let snapshot = folders
+        let url = folderIndexURL
+        let directory = rootURL
+        Task.detached(priority: .utility) {
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let data = try encoder.encode(snapshot)
+                try data.write(to: url, options: .atomic)
+            } catch {
+                print("[ScanPageStore] 資料夾索引寫入失敗: \(error)")
+            }
+        }
+    }
+
     private func persistTrashIndex() {
         let snapshot = trashPages
         let url = trashIndexURL
@@ -193,20 +274,70 @@ public final class ScanPageStore: ObservableObject {
         }
     }
 
+    // MARK: - 資料夾管理
+
+    @discardableResult
+    public func createFolder(name: String) -> ScanFolder {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalName = trimmed.isEmpty ? "未命名資料夾" : trimmed
+        let newFolder = ScanFolder(name: finalName)
+        folders.append(newFolder)
+        currentFolderId = newFolder.id
+        persistFolderIndex()
+        return newFolder
+    }
+
+    public func renameFolder(id: UUID, newName: String) {
+        guard let index = folders.firstIndex(where: { $0.id == id }) else { return }
+        let trimmed = newName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        folders[index].name = trimmed
+        folders[index].updatedAt = Date()
+        persistFolderIndex()
+    }
+
+    public func deleteFolder(id: UUID) {
+        guard id != ScanFolder.defaultId else { return } // 預設資料夾不可刪除
+        folders.removeAll(where: { $0.id == id })
+        if currentFolderId == id {
+            currentFolderId = ScanFolder.defaultId
+        }
+        // 將該資料夾內所有頁面移至垃圾桶
+        let pagesToDelete = pages.filter { $0.folderId == id }
+        for p in pagesToDelete {
+            delete(id: p.id)
+        }
+        persistFolderIndex()
+    }
+
+    /// 將多個頁面移動到目標資料夾
+    public func move(pageIds: Set<UUID>, to folderId: UUID) {
+        guard !pageIds.isEmpty else { return }
+        for id in pageIds {
+            if let index = pages.firstIndex(where: { $0.id == id }) {
+                pages[index].folderId = folderId
+            }
+        }
+        persistIndex()
+    }
+
     // MARK: - 新增 / 更新 / 刪除
 
     /// 新增一頁（JPEG 壓縮與寫檔皆在背景執行）
     /// - Parameters:
     ///   - processed: 已套用濾鏡、可直接顯示的影像
     ///   - raw: 已裁切但未上濾鏡的影像，供日後切換濾鏡／重新裁切
+    ///   - folderId: 所屬資料夾 ID，預設為當前選取的 currentFolderId
     @discardableResult
     public func append(
         processed: UIImage,
         raw: UIImage?,
         filterMode: DocumentFilterMode,
-        document: DetectedDocument?
+        document: DetectedDocument?,
+        folderId: UUID? = nil
     ) async -> ScanPage? {
         let id = UUID()
+        let targetFolderId = folderId ?? currentFolderId
         let processedName = "\(id.uuidString)_p.jpg"
         let rawName = raw == nil ? nil : "\(id.uuidString)_r.jpg"
         let directory = rootURL
@@ -230,6 +361,7 @@ public final class ScanPageStore: ObservableObject {
             let page = ScanPage(
                 id: id,
                 createdAt: createdAt,
+                folderId: targetFolderId,
                 processedFileName: processedName,
                 rawFileName: rawName,
                 filterModeRaw: filterRaw,
@@ -296,6 +428,26 @@ public final class ScanPageStore: ObservableObject {
 
         let trashItem = TrashPage(page: page)
         trashPages.insert(trashItem, at: 0)
+
+        persistIndex()
+        persistTrashIndex()
+    }
+
+    /// 批次將指定頁面移入垃圾桶
+    public func delete(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        var removedPages: [ScanPage] = []
+        pages.removeAll { page in
+            if ids.contains(page.id) {
+                removedPages.append(page)
+                thumbnailCache.removeValue(forKey: page.id)
+                return true
+            }
+            return false
+        }
+        let now = Date()
+        let trashItems = removedPages.map { TrashPage(page: $0, deletedAt: now) }
+        trashPages.insert(contentsOf: trashItems, at: 0)
 
         persistIndex()
         persistTrashIndex()
