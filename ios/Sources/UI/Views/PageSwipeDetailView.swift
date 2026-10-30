@@ -191,30 +191,15 @@ public struct PageSwipeDetailView: View {
             case .pdfExport:
                 PDFExportSheet(viewModel: viewModel)
             case .ocrResult(let text):
-                NavigationStack {
-                    ScrollView {
-                        Text(text)
-                            .font(.system(size: 15))
-                            .lineSpacing(6)
-                            .padding()
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                OCRResultSheet(
+                    text: text,
+                    onCopy: {
+                        #if canImport(UIKit)
+                        UIPasteboard.general.string = text
+                        showToast("已複製文字至剪貼簿")
+                        #endif
                     }
-                    .navigationTitle("文字辨識結果 (OCR)")
-                    .navigationBarTitleDisplayMode(.inline)
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("關閉") { activeModal = nil }
-                        }
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("複製全部") {
-                                #if canImport(UIKit)
-                                UIPasteboard.general.string = text
-                                showToast("已複製文字至剪貼簿")
-                                #endif
-                            }
-                        }
-                    }
-                }
+                )
             case .jpgShare(let fileURL):
                 ActivityView(activityItems: [fileURL])
             case .moveFolder(let pageId):

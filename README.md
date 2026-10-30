@@ -1,6 +1,6 @@
 # vFlat 逆向工程與 iOS 原生重構專案 (vFlat-iOS)
 
-![Version](https://img.shields.io/badge/version-v1.6.2-blue.svg)
+![Version](https://img.shields.io/badge/version-v1.6.3-blue.svg)
 ![Platform](https://img.shields.io/badge/platform-iOS%2016.0%2B-black.svg)
 ![Swift](https://img.shields.io/badge/Swift-5.9-orange.svg)
 ![Metal](https://img.shields.io/badge/Metal-60fps-red.svg)
