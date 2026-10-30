@@ -17,8 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Unit Tests
+  build-and-test:
+    name: Build & Test iOS IPA
     runs-on: macos-15
     steps:
       - name: Checkout repository
@@ -59,29 +59,6 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=""
-
-  build:
-    name: Build Unsigned IPA
-    needs: test
-    runs-on: macos-15
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Select Xcode Version
-        run: |
-          if ls -d /Applications/Xcode_16*.app 1> /dev/null 2>&1; then
-            TARGET_XCODE=$(ls -d /Applications/Xcode_16*.app | sort -V | tail -n 1)
-            echo "Selecting $TARGET_XCODE"
-            sudo xcode-select -s "$TARGET_XCODE"
-          fi
-          xcodebuild -version
-
-      - name: Install xcodegen
-        run: brew install xcodegen
-
-      - name: Generate Xcode Project
-        run: xcodegen generate
 
       - name: Build Archive
         run: |

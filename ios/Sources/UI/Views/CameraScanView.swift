@@ -44,6 +44,7 @@ public struct CameraScanView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = ScannerViewModel()
     @State private var showingFolderSwitchSheet: Bool = false
+    @State private var toastMessage: String? = nil
 
     public init() {}
 
@@ -142,6 +143,23 @@ public struct CameraScanView: View {
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
             }
+
+            // Toast 提示膠囊
+            if let msg = toastMessage {
+                VStack {
+                    Spacer()
+                    Text(msg)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
+                        .background(Color.black.opacity(0.85))
+                        .cornerRadius(24)
+                        .padding(.bottom, 120)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                .animation(.easeInOut(duration: 0.25), value: toastMessage)
+            }
         }
         .fullScreenCover(isPresented: $viewModel.showingDocumentDetail) {
             PageSwipeDetailView(viewModel: viewModel)
@@ -211,6 +229,29 @@ public struct CameraScanView: View {
 
             Spacer()
 
+            // 👑 Upgrade 尊榮 VIP 特權膠囊 (1:1 對齊原廠圖四)
+            Button(action: {
+                showToast("👑 VIP 旗艦永久授權已生效，全功能無限暢享！")
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "crown.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(Color(red: 0.98, green: 0.78, blue: 0.25))
+                    Text("Upgrade")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 7)
+                .background(Color.black.opacity(0.55))
+                .clipShape(Capsule())
+                .overlay(
+                    Capsule().stroke(Color(red: 0.98, green: 0.78, blue: 0.25), lineWidth: 1.5)
+                )
+            }
+
+            Spacer()
+
             // 設定齒輪按鈕
             Button(action: { viewModel.showingSettings = true }) {
                 Image(systemName: "gearshape")
@@ -261,33 +302,41 @@ public struct CameraScanView: View {
 
             Spacer()
 
-            // 3. AUTO SCAN
+            // 3. AUTO SCAN (1:1 帶金色皇冠)
             Button(action: { viewModel.isAutoCaptureEnabled.toggle() }) {
                 VStack(spacing: 2) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(viewModel.isAutoCaptureEnabled ? Color(red: 0.98, green: 0.82, blue: 0.35) : .white)
+                    Image(systemName: "crown.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(Color(red: 0.98, green: 0.78, blue: 0.25))
                     Text("AUTO\nSCAN")
                         .font(.system(size: 8, weight: .bold))
                         .multilineTextAlignment(.center)
                         .lineSpacing(-2)
-                        .foregroundColor(viewModel.isAutoCaptureEnabled ? Color(red: 0.98, green: 0.82, blue: 0.35) : .white)
+                        .foregroundColor(.white)
                 }
-                .frame(width: 42, height: 36)
+                .frame(width: 44, height: 36)
                 .background(viewModel.isAutoCaptureEnabled ? Color.white.opacity(0.25) : Color.black.opacity(0.3))
                 .clipShape(RoundedRectangle(cornerRadius: 8))
             }
 
             Spacer()
 
-            // 4. 色彩濾鏡
+            // 4. 色彩濾鏡 (1:1 帶右上角紅點提示)
             Button(action: { viewModel.cycleFilterMode() }) {
-                Image(systemName: "sun.max")
-                    .font(.system(size: 18))
-                    .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
-                    .frame(width: 36, height: 36)
-                    .background(Color.black.opacity(0.3))
-                    .clipShape(Circle())
+                ZStack(alignment: .topTrailing) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 18))
+                        .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
+                        .frame(width: 36, height: 36)
+                        .background(Color.black.opacity(0.3))
+                        .clipShape(Circle())
+
+                    // 原廠紅色小圓點
+                    Circle()
+                        .fill(Color.red)
+                        .frame(width: 7, height: 7)
+                        .offset(x: -2, y: 2)
+                }
             }
         }
         .padding(.horizontal, 28)
@@ -434,6 +483,20 @@ public struct CameraScanView: View {
             }
             .padding(.horizontal, 36)
             .padding(.bottom, 40)
+        }
+    }
+
+    private func showToast(_ message: String) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            toastMessage = message
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            await MainActor.run {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    toastMessage = nil
+                }
+            }
         }
     }
 }
