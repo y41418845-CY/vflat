@@ -11,6 +11,25 @@ import UIKit
 public final class MetalOffscreenDewarper: @unchecked Sendable {
     public static let shared = MetalOffscreenDewarper()
 
+    /// 驗證呼叫端提供的 25×25 網格是否為「可用的真實模型輸出」。
+    ///
+    /// 早期版本會在沒有網格時自行合成正弦曲面；此函式用來拒絕退化或明顯不合理的輸入，
+    /// 避免任何呼叫端（含未來的模型推論端）不小心把假資料餵進展平管線。
+    private static func isValidGrid(_ grid: [SIMD2<Float>]) -> Bool {
+        guard grid.count == DewarpGeometry.totalPoints else { return false }
+
+        var first = grid[0]
+        var hasVariation = false
+        for pt in grid {
+            guard pt.x.isFinite, pt.y.isFinite else { return false }
+            // 網格座標應落在歸一化範圍內（允許些微越界以容納邊界修正）
+            guard pt.x >= -0.05, pt.x <= 1.05, pt.y >= -0.05, pt.y <= 1.05 else { return false }
+            if pt != first { hasVariation = true }
+        }
+        // 拒絕「所有點都相同」的退化網格（合成假資料最常見的形式）
+        return hasVariation
+    }
+
     /// 輸出尺寸上限，避免異常網格造成巨型配置而 OOM
     private static let maxOutputDimension = 8192
     private static let maxOutputPixels = 16_000_000
@@ -67,7 +86,7 @@ public final class MetalOffscreenDewarper: @unchecked Sendable {
         // 沒有真實的 25x25 曲面網格時直接回傳原圖。
         // 早期版本會在此合成正弦曲面，會把正常照片扭成波浪狀並持續破壞輸出，
         // 此「合成假曲面」行為已移除；展平必須依賴真實模型推論結果。
-        guard let grid = curvedGrid, grid.count == DewarpGeometry.totalPoints else {
+        guard let grid = curvedGrid, Self.isValidGrid(grid) else {
             return image
         }
 

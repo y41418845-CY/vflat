@@ -50,6 +50,6 @@ ios/
    或在 Xcode 按 `Cmd + U`。
 
 ## 版本與權限
-- 版本號：`1.2.0`（Build `120`），由 `project.yml` 的 `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` 注入。
+- 版本號：`1.2.1`（Build `121`），由 `project.yml` 的 `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` 注入。
 - Info.plist 需包含：`NSCameraUsageDescription`、`NSPhotoLibraryUsageDescription`、`NSPhotoLibraryAddUsageDescription`。
   **請以 `project.yml` 為唯一來源**，`xcodegen generate` 會覆寫 `ios/Info.plist`。
