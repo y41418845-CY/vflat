@@ -257,6 +257,11 @@ public final class DocumentDetector {
     private let persistenceWindow: TimeInterval = 0.35 // 350ms 滯後窗口，防止短暫掉幀產生劇烈閃爍
 
     public var onDocumentDetected: ((DetectedDocument?) -> Void)?
+    public var onBarcodeDetected: ((DetectedBarcode?) -> Void)?
+
+    private var barcodeThrottleTime: TimeInterval = 0
+    private var lastBarcodePayload: String? = nil
+    private var lastBarcodeTime: TimeInterval = 0
 
     public init() {}
 
@@ -316,17 +321,44 @@ public final class DocumentDetector {
             rectRequest.quadratureTolerance = 18.0
             rectRequest.minimumSize = 0.08
 
+            var barcodeResult: DetectedBarcode? = nil
+            let barcodeRequest = VNDetectBarcodesRequest { req, error in
+                guard error == nil, let results = req.results as? [VNBarcodeObservation], let first = results.first else {
+                    return
+                }
+                if let payload = first.payloadStringValue, !payload.isEmpty {
+                    let symbologyStr = first.symbology.rawValue
+                    barcodeResult = DetectedBarcode(
+                        payloadString: payload,
+                        symbology: symbologyStr,
+                        boundingBox: first.boundingBox
+                    )
+                }
+            }
+
             let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer, orientation: .up, options: [:])
             do {
-                try handler.perform([docSegRequest, rectRequest])
+                try handler.perform([docSegRequest, rectRequest, barcodeRequest])
             } catch {
                 self.isProcessing = false
                 self.onDocumentDetected?(nil)
+                self.onBarcodeDetected?(nil)
                 return
             }
 
             self.isProcessing = false
             let now = CACurrentMediaTime()
+
+            if let bc = barcodeResult {
+                self.lastBarcodePayload = bc.payloadString
+                self.lastBarcodeTime = now
+                self.onBarcodeDetected?(bc)
+            } else if now - self.lastBarcodeTime < 2.5, let lastPayload = self.lastBarcodePayload {
+                self.onBarcodeDetected?(DetectedBarcode(payloadString: lastPayload, symbology: "QR/Barcode"))
+            } else {
+                self.lastBarcodePayload = nil
+                self.onBarcodeDetected?(nil)
+            }
 
             // 1. 優先採用神經網絡語意分割輸出
             var selectedQuad: CandidateQuad? = neuralCandidate

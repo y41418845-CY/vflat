@@ -86,7 +86,62 @@ public struct CameraScanView: View {
                 .animation(.easeInOut(duration: 0.2), value: viewModel.autoCaptureProgress)
             }
 
-            // 4. 頂部工具列與底部控制層
+            // 4. QR Code / 條碼懸浮智慧膠囊通知 (對齊 OSS-DocumentScanner，點擊複製或開啟網址)
+            if let barcode = viewModel.detectedBarcode {
+                VStack {
+                    Button(action: {
+                        #if canImport(UIKit)
+                        UIPasteboard.general.string = barcode.payloadString
+                        let impact = UIImpactFeedbackGenerator(style: .medium)
+                        impact.impactOccurred()
+                        if barcode.isURL, let url = URL(string: barcode.payloadString) {
+                            UIApplication.shared.open(url)
+                        }
+                        #endif
+                    }) {
+                        HStack(spacing: 8) {
+                            Image(systemName: barcode.iconName)
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(barcode.isURL ? "開啟連結 (點擊開啟/已複製)" : "條碼內容 (點擊已複製)")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .foregroundColor(.white.opacity(0.8))
+
+                                Text(barcode.payloadString)
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundColor(.white)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+
+                            Spacer()
+
+                            Image(systemName: barcode.isURL ? "arrow.up.right.square" : "doc.on.doc")
+                                .font(.system(size: 14))
+                                .foregroundColor(.white.opacity(0.7))
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(Color.black.opacity(0.78))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color(red: 0.98, green: 0.82, blue: 0.35).opacity(0.6), lineWidth: 1.2)
+                        )
+                        .shadow(color: .black.opacity(0.4), radius: 8, y: 4)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 100)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .animation(.spring(response: 0.35, dampingFraction: 0.75), value: barcode.payloadString)
+
+                    Spacer()
+                }
+            }
+
+            // 5. 頂部工具列與底部控制層
             VStack(spacing: 0) {
                 // 頂部主導航列 (資料庫、Upgrade、設定) - 對齊圖一最上方
                 HStack(spacing: 12) {

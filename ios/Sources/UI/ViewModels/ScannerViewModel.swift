@@ -16,6 +16,7 @@ public final class ScannerViewModel: ObservableObject {
     @Published public var isDewarpEnabled: Bool = false // 預設關閉人為模擬彎曲，保持物品 1:1 真實比例不變形
     @Published public var detectedDocument: DetectedDocument? = nil
     @Published public var isDocumentDetected: Bool = false
+    @Published public var detectedBarcode: DetectedBarcode? = nil // 即時 QR Code / 條碼偵測結果
     @Published public var capturedPageCount: Int = 182 // 對齊圖一計數狀態
     @Published public var isAutoCaptureEnabled: Bool = false
     @Published public var autoCaptureProgress: Double = 0.0 // 自動穩定捕捉進度 0.0 ~ 1.0
@@ -88,6 +89,14 @@ public final class ScannerViewModel: ObservableObject {
                     self.autoCaptureDetector.reset()
                     self.autoCaptureProgress = 0.0
                 }
+            }
+        }
+
+        // 對齊 OSS-DocumentScanner 之 QR Code / 條碼自動解析回呼
+        documentDetector.onBarcodeDetected = { [weak self] barcode in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.detectedBarcode = barcode
             }
         }
     }
