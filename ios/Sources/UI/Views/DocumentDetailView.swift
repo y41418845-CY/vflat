@@ -470,6 +470,20 @@ public struct OCRResultSheet: View {
     public let onCopy: () -> Void
     @Environment(\.dismiss) private var dismiss
 
+    public init(text: String, onCopy: @escaping () -> Void = {}) {
+        self.text = text
+        self.onCopy = onCopy
+    }
+
+    public init(ocrText: String) {
+        self.text = ocrText
+        self.onCopy = {
+            #if canImport(UIKit)
+            UIPasteboard.general.string = ocrText
+            #endif
+        }
+    }
+
     public var body: some View {
         NavigationView {
             ScrollView {
