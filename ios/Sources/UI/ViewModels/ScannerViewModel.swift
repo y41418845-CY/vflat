@@ -819,17 +819,17 @@ public struct ScannerError: LocalizedError, CustomStringConvertible {
 
     public enum AIEnhancerType: String, CaseIterable, Identifiable {
         case ultra = "極致全開"
-        case dewarp = "曲面展平"
-        case shadow = "消除陰影"
-        case deblur = "文字銳化"
+        case dewarp = "拉直"
+        case shadow = "AI 橡皮擦"
+        case deblur = "模糊校正"
         case finger = "手指抹除"
-        case handwriting = "清除筆跡"
+        case handwriting = "擦除筆記"
 
         public var id: String { rawValue }
     }
 
     public func runAIEnhancer(type: AIEnhancerType, targetPageID: UUID? = nil) async {
-        let target = targetPageID.flatMap { id in pages.first(where: { $0.id == id }) }
+        let target = targetPageID.flatMap { id in pageStore.pages.first(where: { $0.id == id }) }
         switch type {
         case .ultra:
             await applyUltraScan(to: target)

@@ -71,21 +71,24 @@ public struct ZoomableImageView: View {
     }
 }
 
-/// 原廠 1:1 左右水平翻頁閱讀器與全功能後處理中心 (PageSwipeViewController)
+/// 左右水平翻頁閱讀器 (1:1 完美對齊原廠圖二配置)
 public struct PageSwipeDetailView: View {
-    @Environment(\.dismiss) private var dismiss
     @ObservedObject var viewModel: ScannerViewModel
-    let initialPageId: UUID?
+    @ObservedObject private var pageStore: ScanPageStore
+    @Environment(\.dismiss) private var dismiss
 
+    private let initialPageId: UUID?
     @State private var selectedIndex: Int = 0
     @State private var showingFilterSelector: Bool = false
-    @State private var showingAISelector: Bool = false
     @State private var showingLoupeCropView: Bool = false
-    @State private var showingExportActionSheet: Bool = false
+    @State private var showingMoreMenuActionSheet: Bool = false
     @State private var showingThumbnailStrip: Bool = false
     @State private var toastMessage: String? = nil
+    @State private var processingDescription: String? = nil
+    @State private var imageRevision: UUID = UUID()
 
     private enum ActiveModal: Identifiable {
+        case aiEnhancer
         case pdfExport
         case ocrResult(String)
         case jpgShare(URL)
@@ -93,6 +96,8 @@ public struct PageSwipeDetailView: View {
 
         var id: String {
             switch self {
+            case .aiEnhancer:
+                return "aiEnhancer"
             case .pdfExport:
                 return "pdfExport"
             case .ocrResult(let text):
@@ -108,13 +113,14 @@ public struct PageSwipeDetailView: View {
 
     public init(viewModel: ScannerViewModel, initialPageId: UUID? = nil) {
         self.viewModel = viewModel
+        self._pageStore = ObservedObject(wrappedValue: viewModel.pageStore)
         self.initialPageId = initialPageId
     }
 
     /// 當前資料夾過濾後的頁面清單
     private var pages: [ScanPage] {
-        let folderPages = viewModel.pageStore.pages(in: viewModel.pageStore.currentFolderId)
-        return folderPages.isEmpty ? viewModel.pages : folderPages
+        let folderPages = pageStore.pages(in: pageStore.currentFolderId)
+        return folderPages.isEmpty ? pageStore.pages : folderPages
     }
 
     private var currentPage: ScanPage? {
@@ -128,7 +134,7 @@ public struct PageSwipeDetailView: View {
             Color(red: 0.10, green: 0.10, blue: 0.11).ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // 1. 頂部導航列
+                // 1. 頂部導航列 (1:1 對齊原廠圖二：< 相機 | 183 / 183 | 文件夾 ...)
                 topNavigationBar
 
                 // 2. 中央水平翻頁 TabView
@@ -139,25 +145,26 @@ public struct PageSwipeDetailView: View {
                     thumbnailStripView
                 }
 
-                // 4. 底部原廠 5 大影像編輯工具列
+                // 4. 底部原廠 5 大影像編輯工具列 (裁剪、增強、濾鏡、OCR、刪除)
                 bottomToolBar
             }
 
             // 5. AI 後處理進度遮罩
-            if viewModel.isProcessingCapture {
+            if let desc = processingDescription ?? (viewModel.isProcessingCapture ? "處理中..." : nil) {
                 ZStack {
-                    Color.black.opacity(0.55).ignoresSafeArea()
+                    Color.black.opacity(0.65).ignoresSafeArea()
                     VStack(spacing: 16) {
                         ProgressView()
                             .progressViewStyle(CircularProgressViewStyle(tint: .white))
                             .scaleEffect(1.4)
-                        Text("AI 增強處理中...")
-                            .font(.system(size: 15, weight: .medium))
+                        Text(desc)
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundColor(.white)
                     }
-                    .padding(24)
-                    .background(Color(white: 0.2, opacity: 0.9))
-                    .cornerRadius(16)
+                    .padding(26)
+                    .background(Color(white: 0.18, opacity: 0.95))
+                    .cornerRadius(18)
+                    .shadow(radius: 12)
                 }
             }
 
@@ -180,26 +187,22 @@ public struct PageSwipeDetailView: View {
         }
         .onAppear {
             if let targetId = initialPageId,
-               let foundIndex = pages.firstIndex(where: { $0.id == targetId }) {
-                selectedIndex = foundIndex
+               let targetIndex = pages.firstIndex(where: { $0.id == targetId }) {
+                selectedIndex = targetIndex
             } else if !pages.isEmpty {
-                selectedIndex = max(0, min(selectedIndex, pages.count - 1))
+                selectedIndex = pages.count - 1
             }
         }
         .sheet(item: $activeModal) { modal in
             switch modal {
+            case .aiEnhancer:
+                AIEnhancerSheet { type in
+                    runAI(type)
+                }
             case .pdfExport:
                 PDFExportSheet(viewModel: viewModel)
             case .ocrResult(let text):
-                OCRResultSheet(
-                    text: text,
-                    onCopy: {
-                        #if canImport(UIKit)
-                        UIPasteboard.general.string = text
-                        showToast("已複製文字至剪貼簿")
-                        #endif
-                    }
-                )
+                OCRResultSheet(ocrText: text)
             case .jpgShare(let fileURL):
                 ActivityView(activityItems: [fileURL])
             case .moveFolder(let pageId):
@@ -207,7 +210,7 @@ public struct PageSwipeDetailView: View {
             }
         }
         .sheet(isPresented: $showingLoupeCropView) {
-            if let page = currentPage, let image = viewModel.pageStore.rawImage(for: page) ?? viewModel.pageStore.image(for: page) {
+            if let page = currentPage, let image = pageStore.rawImage(for: page) ?? pageStore.image(for: page) {
                 LoupeCropView(
                     sourceImage: image,
                     initialDocument: page.document ?? DetectedDocument(
@@ -229,7 +232,7 @@ public struct PageSwipeDetailView: View {
                 )
             }
         }
-        .confirmationDialog("匯出與分享", isPresented: $showingExportActionSheet, titleVisibility: .visible) {
+        .confirmationDialog("更多選項", isPresented: $showingMoreMenuActionSheet, titleVisibility: .visible) {
             Button("儲存此頁至相簿 (.jpg)") {
                 saveCurrentPageToPhotos()
             }
@@ -245,7 +248,7 @@ public struct PageSwipeDetailView: View {
                 }
             }
             if let page = currentPage {
-                Button("移動此頁至其他資料夾...") {
+                Button("移動此頁至其他文件夾...") {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                         activeModal = .moveFolder(page.id)
                     }
@@ -253,85 +256,65 @@ public struct PageSwipeDetailView: View {
             }
             Button("取消", role: .cancel) {}
         }
-        .actionSheet(isPresented: $showingAISelector) {
-            ActionSheet(
-                title: Text("AI 魔法修復工具 (旗艦全功能無限制)"),
-                message: Text("採用 Clean Room 純原生數學演算法與 Metal 著色器，離線保證隱私"),
-                buttons: [
-                    .default(Text("🌟 極致全開 (Ultra Scan)")) {
-                        runAI(.ultra)
-                    },
-                    .default(Text("☀️ 手機陰影消除 (Shadow Removal)")) {
-                        runAI(.shadow)
-                    },
-                    .default(Text("🖐️ 邊緣手指抹除 (Finger Removal)")) {
-                        runAI(.finger)
-                    },
-                    .default(Text("✍️ 手寫筆跡消除 (Handwriting Removal)")) {
-                        runAI(.handwriting)
-                    },
-                    .default(Text("🔍 文字清晰去模糊 (Deblur)")) {
-                        runAI(.deblur)
-                    },
-                    .default(Text("📖 25×25 自由曲面展開 (Dewarp)")) {
-                        runAI(.dewarp)
-                    },
-                    .cancel(Text("取消"))
-                ]
-            )
-        }
     }
 
-    // MARK: - 頂部導航列
+    // MARK: - 頂部導航列 (1:1 對齊原廠圖二：< 相機 | 183 / 183 | 文件夾 ...)
 
     private var topNavigationBar: some View {
-        HStack {
+        HStack(alignment: .center) {
+            // 左側返回相機鈕 (< 相機)
             Button(action: { dismiss() }) {
                 HStack(spacing: 4) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 18, weight: .semibold))
-                    Text("返回")
-                        .font(.system(size: 16))
+                        .font(.system(size: 20, weight: .semibold))
+                    Text("相機")
+                        .font(.system(size: 17, weight: .medium))
                 }
                 .foregroundColor(.white)
             }
 
             Spacer()
 
-            // 頁碼指示（點擊展開/收合縮圖條）
+            // 中間大頁碼 (183 / 183)
             Button(action: {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     showingThumbnailStrip.toggle()
                 }
             }) {
-                HStack(spacing: 4) {
-                    Text(pages.isEmpty ? "無頁面" : "\(selectedIndex + 1) / \(pages.count)")
-                        .font(.system(size: 16, weight: .bold))
+                HStack(spacing: 5) {
+                    Text(pages.isEmpty ? "0 / 0" : "\(selectedIndex + 1) / \(pages.count)")
+                        .font(.system(size: 18, weight: .bold))
                         .foregroundColor(.white)
                     Image(systemName: showingThumbnailStrip ? "chevron.up.circle.fill" : "chevron.down.circle")
-                        .font(.system(size: 13))
-                        .foregroundColor(.white.opacity(0.8))
+                        .font(.system(size: 12))
+                        .foregroundColor(.white.opacity(0.7))
                 }
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background(Color.white.opacity(0.12))
-                .cornerRadius(14)
+                .cornerRadius(12)
             }
 
             Spacer()
 
-            // 右側功能鈕：OCR 與分享
+            // 右側：文件夾 + 更多按鈕 (...)
             HStack(spacing: 16) {
-                Button(action: { recognizeCurrentPageText() }) {
-                    Image(systemName: "doc.text.viewfinder")
-                        .font(.system(size: 20))
+                // 文件夾快速移動
+                Button(action: {
+                    if let page = currentPage {
+                        activeModal = .moveFolder(page.id)
+                    }
+                }) {
+                    Text("文件夾")
+                        .font(.system(size: 17, weight: .medium))
                         .foregroundColor(currentPage != nil ? .white : .gray)
                 }
                 .disabled(currentPage == nil)
 
-                Button(action: { showingExportActionSheet = true }) {
-                    Image(systemName: "square.and.arrow.up")
-                        .font(.system(size: 20))
+                // 更多功能選單按鈕 (...)
+                Button(action: { showingMoreMenuActionSheet = true }) {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 20, weight: .bold))
                         .foregroundColor(currentPage != nil ? .white : .gray)
                 }
                 .disabled(currentPage == nil)
@@ -352,7 +335,7 @@ public struct PageSwipeDetailView: View {
                     Image(systemName: "doc.text.magnifyingglass")
                         .font(.system(size: 50))
                         .foregroundColor(.gray)
-                    Text("資料夾內尚無任何掃描頁面")
+                    Text("文件夾內尚無任何掃描頁面")
                         .font(.system(size: 16))
                         .foregroundColor(.gray)
                 }
@@ -360,9 +343,10 @@ public struct PageSwipeDetailView: View {
                 TabView(selection: $selectedIndex) {
                     ForEach(pages.indices, id: \.self) { index in
                         let page = pages[index]
-                        if let img = viewModel.pageStore.image(for: page) {
+                        if let img = pageStore.image(for: page) {
                             ZoomableImageView(image: img)
                                 .tag(index)
+                                .id("\(page.id.uuidString)_\(imageRevision.uuidString)")
                                 .padding(.horizontal, 8)
                         } else {
                             ProgressView()
@@ -389,7 +373,7 @@ public struct PageSwipeDetailView: View {
                             selectedIndex = index
                         }) {
                             ZStack(alignment: .bottomTrailing) {
-                                if let thumb = viewModel.pageStore.thumbnail(for: page, maxPixel: 160) {
+                                if let thumb = pageStore.thumbnail(for: page, maxPixel: 160) {
                                     Image(uiImage: thumb)
                                         .resizable()
                                         .scaledToFill()
@@ -398,7 +382,7 @@ public struct PageSwipeDetailView: View {
                                         .cornerRadius(6)
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 6)
-                                                .stroke(isSelected ? Color(red: 0.08, green: 0.78, blue: 0.44) : Color.clear, lineWidth: 2.5)
+                                                .stroke(isSelected ? Color(red: 0.08, green: 0.78, blue: 0.44) : Color.clear, lineWidth: 2)
                                         )
                                 } else {
                                     Rectangle()
@@ -411,8 +395,8 @@ public struct PageSwipeDetailView: View {
                                     .font(.system(size: 10, weight: .bold))
                                     .foregroundColor(.white)
                                     .padding(.horizontal, 4)
-                                    .padding(.vertical, 1)
-                                    .background(Color.black.opacity(0.75))
+                                    .padding(.vertical, 2)
+                                    .background(Color.black.opacity(0.6))
                                     .cornerRadius(4)
                                     .padding(3)
                             }
@@ -421,12 +405,9 @@ public struct PageSwipeDetailView: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.vertical, 10)
             }
             .background(Color(red: 0.14, green: 0.14, blue: 0.15))
-            .onAppear {
-                scrollProxy.scrollTo(selectedIndex, anchor: .center)
-            }
             .onChange(of: selectedIndex) { newIndex in
                 withAnimation {
                     scrollProxy.scrollTo(newIndex, anchor: .center)
@@ -435,44 +416,58 @@ public struct PageSwipeDetailView: View {
         }
     }
 
-    // MARK: - 底部 5 大工具列 (對齊原廠)
+    // MARK: - 底部原廠 5 大影像編輯工具列 (裁剪、增強、濾鏡、OCR、刪除)
 
     private var bottomToolBar: some View {
         VStack(spacing: 0) {
-            // 濾鏡切換子選單（點擊濾鏡按鈕時展開）
             if showingFilterSelector {
                 filterSelectorBar
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
             HStack(spacing: 0) {
-                // 1. 裁剪 Crop
-                toolButton(title: "裁剪", icon: "crop") {
-                    showingLoupeCropView = true
-                }
+                // 1. 裁剪
+                toolButton(
+                    icon: "crop",
+                    title: "裁剪",
+                    action: { showingLoupeCropView = true }
+                )
 
-                // 2. AI 增強
-                toolButton(title: "AI 增強", icon: "sparkles", isHighlighted: true) {
-                    showingAISelector = true
-                }
+                // 2. 增強 (點擊開啟原廠 1:1 人工智慧增強器卡片面板)
+                toolButton(
+                    icon: "sparkles",
+                    title: "增強",
+                    highlight: true,
+                    action: { activeModal = .aiEnhancer }
+                )
 
-                // 3. 色彩濾鏡
-                toolButton(title: "濾鏡", icon: "slider.horizontal.3") {
-                    withAnimation(.spring()) {
-                        showingFilterSelector.toggle()
+                // 3. 濾鏡
+                toolButton(
+                    icon: "slider.horizontal.3",
+                    title: "濾鏡",
+                    action: {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showingFilterSelector.toggle()
+                        }
                     }
-                }
+                )
 
-                // 4. 文字辨識 OCR
-                toolButton(title: "文字", icon: "text.magnifyingglass") {
-                    recognizeCurrentPageText()
-                }
+                // 4. 文字辨識 (OCR)
+                toolButton(
+                    icon: "doc.text.viewfinder",
+                    title: "文字",
+                    action: { recognizeCurrentPageText() }
+                )
 
                 // 5. 刪除
-                toolButton(title: "刪除", icon: "trash", isDestructive: true) {
-                    deleteCurrentPage()
-                }
+                toolButton(
+                    icon: "trash",
+                    title: "刪除",
+                    isDestructive: true,
+                    action: { deleteCurrentPage() }
+                )
             }
+            .padding(.horizontal, 10)
             .padding(.top, 10)
             .padding(.bottom, 24)
             .background(Color(red: 0.12, green: 0.12, blue: 0.13))
@@ -480,23 +475,23 @@ public struct PageSwipeDetailView: View {
     }
 
     private func toolButton(
-        title: String,
         icon: String,
-        isHighlighted: Bool = false,
+        title: String,
+        highlight: Bool = false,
         isDestructive: Bool = false,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            VStack(spacing: 4) {
+            VStack(spacing: 5) {
                 Image(systemName: icon)
-                    .font(.system(size: 20))
+                    .font(.system(size: 21))
                 Text(title)
                     .font(.system(size: 11, weight: .medium))
             }
             .frame(maxWidth: .infinity)
             .foregroundColor(
                 isDestructive ? Color.red.opacity(0.85) :
-                isHighlighted ? Color(red: 0.08, green: 0.78, blue: 0.44) :
+                highlight ? Color(red: 0.16, green: 0.85, blue: 0.55) :
                 Color.white.opacity(0.9)
             )
         }
@@ -533,27 +528,44 @@ public struct PageSwipeDetailView: View {
 
     private func applyFilter(_ mode: DocumentFilterMode) {
         guard let page = currentPage,
-              let raw = viewModel.pageStore.rawImage(for: page) ?? viewModel.pageStore.image(for: page) else { return }
+              let raw = pageStore.rawImage(for: page) ?? pageStore.image(for: page) else { return }
+        processingDescription = "套用 \(mode.rawValue)..."
         Task {
             let processed = DocumentRectifier.shared.applyFilter(mode, to: raw)
-            await viewModel.pageStore.updateProcessed(id: page.id, image: processed, filterMode: mode)
-            showToast("已套用 \(mode.rawValue)")
+            await pageStore.updateProcessed(id: page.id, image: processed, filterMode: mode)
+            await MainActor.run {
+                self.imageRevision = UUID()
+                self.processingDescription = nil
+                self.showToast("已套用 \(mode.rawValue)")
+            }
         }
     }
 
     private func applyCrop(document: DetectedDocument, for page: ScanPage) async {
-        guard let raw = viewModel.pageStore.rawImage(for: page) ?? viewModel.pageStore.image(for: page) else { return }
+        guard let raw = pageStore.rawImage(for: page) ?? pageStore.image(for: page) else { return }
+        await MainActor.run {
+            self.processingDescription = "重新裁切與幾何拉直中..."
+        }
         let cropped = DocumentRectifier.shared.correctPerspective(image: raw, document: document) ?? raw
         let filtered = DocumentRectifier.shared.applyFilter(page.filterMode, to: cropped)
-        await viewModel.pageStore.updateProcessed(id: page.id, image: filtered, filterMode: page.filterMode)
-        showToast("裁剪與幾何透視已更新")
+        await pageStore.updateProcessed(id: page.id, image: filtered, filterMode: page.filterMode)
+        await MainActor.run {
+            self.imageRevision = UUID()
+            self.processingDescription = nil
+            self.showToast("裁剪與幾何透視已更新")
+        }
     }
 
     private func runAI(_ type: ScannerViewModel.AIEnhancerType) {
         guard let page = currentPage else { return }
+        processingDescription = "正在為您進行\(type.rawValue)..."
         Task {
             await viewModel.runAIEnhancer(type: type, targetPageID: page.id)
-            showToast("AI \(type.rawValue) 已完成")
+            await MainActor.run {
+                self.imageRevision = UUID()
+                self.processingDescription = nil
+                self.showToast("AI \(type.rawValue) 已完成")
+            }
         }
     }
 
@@ -563,19 +575,23 @@ public struct PageSwipeDetailView: View {
             activeModal = .ocrResult(existing)
             return
         }
-        guard let image = viewModel.pageStore.image(for: page) else { return }
+        guard let image = pageStore.image(for: page) else { return }
+        processingDescription = "離線文字辨識中..."
         Task {
             let recognized = await OCRService.shared.recognizeText(in: image) ?? ""
             let resultText = recognized.isEmpty ? "未偵測到清晰文字" : recognized
-            viewModel.pageStore.updateOCR(id: page.id, text: resultText)
-            activeModal = .ocrResult(resultText)
+            await MainActor.run {
+                self.pageStore.updateOCR(id: page.id, text: resultText)
+                self.processingDescription = nil
+                self.activeModal = .ocrResult(resultText)
+            }
         }
     }
 
     private func deleteCurrentPage() {
         guard let page = currentPage else { return }
         let oldIndex = selectedIndex
-        viewModel.pageStore.delete(id: page.id)
+        pageStore.delete(id: page.id)
         if pages.isEmpty {
             dismiss()
         } else {
@@ -585,7 +601,7 @@ public struct PageSwipeDetailView: View {
     }
 
     private func saveCurrentPageToPhotos() {
-        guard let page = currentPage, let image = viewModel.pageStore.image(for: page) else { return }
+        guard let page = currentPage, let image = pageStore.image(for: page) else { return }
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
             DispatchQueue.main.async {
                 guard status == .authorized || status == .limited else {
@@ -619,7 +635,7 @@ public struct PageSwipeDetailView: View {
                 Task {
                     var successCount = 0
                     for page in allPages {
-                        if let img = self.viewModel.pageStore.image(for: page) {
+                        if let img = self.pageStore.image(for: page) {
                             let ok = await withCheckedContinuation { continuation in
                                 PHPhotoLibrary.shared().performChanges({
                                     PHAssetChangeRequest.creationRequestForAsset(from: img)
@@ -638,7 +654,7 @@ public struct PageSwipeDetailView: View {
 
     private func shareCurrentPageJPG() {
         guard let page = currentPage else { return }
-        let url = viewModel.pageStore.rootURL.appendingPathComponent(page.processedFileName)
+        let url = pageStore.rootURL.appendingPathComponent(page.processedFileName)
         guard FileManager.default.fileExists(atPath: url.path) else {
             showToast("找不到實體 JPEG 檔案")
             return
