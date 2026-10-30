@@ -4,6 +4,7 @@ import PDFKit
 
 enum PDFPageSize { case a4, fitWidth, original }
 
+@MainActor
 final class PDFExporter {
     func export(pages: [ScanPage], store: ScanPageStore, fileName: String, pageSize: PDFPageSize, password: String?, searchable: Bool) -> URL? {
         let doc = PDFDocument()

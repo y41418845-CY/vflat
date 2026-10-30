@@ -31,10 +31,10 @@ final class DocumentRectifier {
     func correctPerspective(image: UIImage, document: DetectedDocument) -> UIImage? {
         guard let ci = CIImage(image: image) else { return nil }
         let w = image.size.width, h = image.size.height
-        let tl = CIVector(x: doc.topLeft.x * w, y: (1 - doc.topLeft.y) * h)
-        let tr = CIVector(x: doc.topRight.x * w, y: (1 - doc.topRight.y) * h)
-        let br = CIVector(x: doc.bottomRight.x * w, y: (1 - doc.bottomRight.y) * h)
-        let bl = CIVector(x: doc.bottomLeft.x * w, y: (1 - doc.bottomLeft.y) * h)
+        let tl = CIVector(x: document.topLeft.x * w, y: (1 - document.topLeft.y) * h)
+        let tr = CIVector(x: document.topRight.x * w, y: (1 - document.topRight.y) * h)
+        let br = CIVector(x: document.bottomRight.x * w, y: (1 - document.bottomRight.y) * h)
+        let bl = CIVector(x: document.bottomLeft.x * w, y: (1 - document.bottomLeft.y) * h)
         let filter = CIFilter(name: "CIPerspectiveCorrection")
         filter?.setValue(ci, forKey: kCIInputImageKey)
         filter?.setValue(tl, forKey: "inputTopLeft")

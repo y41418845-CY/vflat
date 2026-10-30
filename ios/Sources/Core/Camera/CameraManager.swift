@@ -18,8 +18,10 @@ enum ScanResolution: String, CaseIterable, Identifiable {
     var displayName: String { rawValue }
 }
 
+import Foundation
+
 @MainActor
-final class CameraManager: ObservableObject {
+final class CameraManager: NSObject, ObservableObject {
     @Published var isTorchAvailable: Bool = false
     @Published var isTorchOn: Bool = false
     @Published var activeFrameRate: Double = 0
