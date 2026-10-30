@@ -349,5 +349,32 @@ public struct CameraScanView: View {
         .onDisappear {
             viewModel.stopScanning()
         }
+        .onChange(of: viewModel.showingSettings) { isPresented in
+            if isPresented {
+                viewModel.stopScanning()
+            } else {
+                Task {
+                    await viewModel.startScanning()
+                }
+            }
+        }
+        .onChange(of: viewModel.showingPhotoPicker) { isPresented in
+            if isPresented {
+                viewModel.stopScanning()
+            } else {
+                Task {
+                    await viewModel.startScanning()
+                }
+            }
+        }
+        .onChange(of: viewModel.showingDocumentDetail) { isPresented in
+            if isPresented {
+                viewModel.stopScanning()
+            } else {
+                Task {
+                    await viewModel.startScanning()
+                }
+            }
+        }
     }
 }

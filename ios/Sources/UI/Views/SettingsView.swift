@@ -236,6 +236,9 @@ public struct SettingsView: View {
             } message: {
                 Text("所有頁面將移入垃圾桶並保留 30 天，在此期間您可以隨時還原。")
             }
+            .onAppear {
+                viewModel.stopScanning()
+            }
         }
     }
 
