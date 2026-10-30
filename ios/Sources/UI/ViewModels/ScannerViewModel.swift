@@ -546,6 +546,107 @@ public final class ScannerViewModel: ObservableObject {
         }
     }
 
+    // MARK: - 原廠 AI 核心功能 (Deblur / Finger Removal / Handwriting Removal)
+
+    /// 對指定頁面（預設為最後一頁）執行 AI 模糊修復 (Deblur)
+    public func applyDeblur(to targetPage: ScanPage? = nil) async {
+        guard !isProcessingCapture,
+              let page = targetPage ?? pageStore.lastPage,
+              let currentImage = pageStore.image(for: page) ?? lastPreviewImage else {
+            return
+        }
+
+        isProcessingCapture = true
+        defer { isProcessingCapture = false }
+
+        let store = pageStore
+        let pageId = page.id
+        let filterMode = page.filterMode
+
+        let result = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+            return DeblurProcessor.shared.deblur(image: currentImage)
+        }.value
+
+        guard let deblurred = result else {
+            showError("AI 模糊修復失敗")
+            return
+        }
+
+        let updated = await store.updateProcessed(id: pageId, image: deblurred, filterMode: filterMode)
+        if updated {
+            lastPreviewImage = deblurred
+            lastThumbnail = store.thumbnail(for: page)
+        } else {
+            showError("儲存修復結果失敗")
+        }
+    }
+
+    /// 對指定頁面（預設為最後一頁）執行 AI 手指抹除 (Finger Inpaint)
+    public func applyFingerRemoval(to targetPage: ScanPage? = nil) async {
+        guard !isProcessingCapture,
+              let page = targetPage ?? pageStore.lastPage,
+              let currentImage = pageStore.image(for: page) ?? lastPreviewImage else {
+            return
+        }
+
+        isProcessingCapture = true
+        defer { isProcessingCapture = false }
+
+        let store = pageStore
+        let pageId = page.id
+        let filterMode = page.filterMode
+
+        let result = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+            return FingerRemovalProcessor.shared.removeFingers(image: currentImage)
+        }.value
+
+        guard let cleaned = result else {
+            showError("AI 手指抹除失敗")
+            return
+        }
+
+        let updated = await store.updateProcessed(id: pageId, image: cleaned, filterMode: filterMode)
+        if updated {
+            lastPreviewImage = cleaned
+            lastThumbnail = store.thumbnail(for: page)
+        } else {
+            showError("儲存修補結果失敗")
+        }
+    }
+
+    /// 對指定頁面（預設為最後一頁）執行 AI 手寫筆跡消除 (Handwriting Removal)
+    public func applyHandwritingRemoval(to targetPage: ScanPage? = nil) async {
+        guard !isProcessingCapture,
+              let page = targetPage ?? pageStore.lastPage,
+              let currentImage = pageStore.image(for: page) ?? lastPreviewImage else {
+            return
+        }
+
+        isProcessingCapture = true
+        defer { isProcessingCapture = false }
+
+        let store = pageStore
+        let pageId = page.id
+        let filterMode = page.filterMode
+
+        let result = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+            return HandwritingRemovalProcessor.shared.removeHandwriting(image: currentImage)
+        }.value
+
+        guard let cleaned = result else {
+            showError("手寫筆跡消除失敗")
+            return
+        }
+
+        let updated = await store.updateProcessed(id: pageId, image: cleaned, filterMode: filterMode)
+        if updated {
+            lastPreviewImage = cleaned
+            lastThumbnail = store.thumbnail(for: page)
+        } else {
+            showError("儲存清除結果失敗")
+        }
+    }
+
     // MARK: - 頁面管理
 
     public func deleteLastPage() {

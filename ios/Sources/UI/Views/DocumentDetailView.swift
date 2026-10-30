@@ -11,6 +11,7 @@ public struct DocumentDetailView: View {
     @ObservedObject var viewModel: ScannerViewModel
 
     @State private var showingFilterSelector: Bool = false
+    @State private var showingAISelector: Bool = false
     @State private var showingLoupeCropView: Bool = false
     @State private var showingPDFSheet: Bool = false
     @State private var showingOCRResult: Bool = false
@@ -173,6 +174,75 @@ public struct DocumentDetailView: View {
                 }
                 #endif
 
+                // 3.1 AI 魔法工具橫列 (去模糊 / 消手指 / 除筆跡)
+                #if canImport(UIKit)
+                if showingAISelector {
+                    HStack(spacing: 24) {
+                        Button(action: {
+                            Task {
+                                await viewModel.applyDeblur()
+                            }
+                        }) {
+                            VStack(spacing: 4) {
+                                Image(systemName: "sparkles.rectangle.stack")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.white)
+                                    .frame(width: 44, height: 44)
+                                    .background(Color(red: 0.22, green: 0.72, blue: 0.62))
+                                    .clipShape(Circle())
+                                Text("去模糊")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.black)
+                            }
+                        }
+                        .disabled(viewModel.isProcessingCapture || viewModel.pageCount == 0)
+
+                        Button(action: {
+                            Task {
+                                await viewModel.applyFingerRemoval()
+                            }
+                        }) {
+                            VStack(spacing: 4) {
+                                Image(systemName: "hand.raised.slash")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.white)
+                                    .frame(width: 44, height: 44)
+                                    .background(Color(red: 0.22, green: 0.72, blue: 0.62))
+                                    .clipShape(Circle())
+                                Text("消手指")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.black)
+                            }
+                        }
+                        .disabled(viewModel.isProcessingCapture || viewModel.pageCount == 0)
+
+                        Button(action: {
+                            Task {
+                                await viewModel.applyHandwritingRemoval()
+                            }
+                        }) {
+                            VStack(spacing: 4) {
+                                Image(systemName: "pencil.slash")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(.white)
+                                    .frame(width: 44, height: 44)
+                                    .background(Color(red: 0.22, green: 0.72, blue: 0.62))
+                                    .clipShape(Circle())
+                                Text("除筆跡")
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundColor(.black)
+                            }
+                        }
+                        .disabled(viewModel.isProcessingCapture || viewModel.pageCount == 0)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(Color(white: 0.98))
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                #endif
+
                 Divider()
 
                 // 4. 底部功能操作列
@@ -186,9 +256,17 @@ public struct DocumentDetailView: View {
                         showingLoupeCropView = true
                     }
                     Spacer()
-                    bottomToolButton(title: "增強\n濾鏡", icon: "wand.and.stars") {
+                    bottomToolButton(title: "濾鏡", icon: "slider.horizontal.3") {
                         withAnimation(.easeInOut(duration: 0.25)) {
+                            showingAISelector = false
                             showingFilterSelector.toggle()
+                        }
+                    }
+                    Spacer()
+                    bottomToolButton(title: "AI 修復", icon: "wand.and.stars") {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            showingFilterSelector = false
+                            showingAISelector.toggle()
                         }
                     }
                     Spacer()
