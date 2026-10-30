@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: write\n  actions: write
 
 concurrency:
   group: ios-${{ github.ref }}
