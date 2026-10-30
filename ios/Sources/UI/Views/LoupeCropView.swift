@@ -42,6 +42,21 @@ public struct LoupeCropView: View {
         self._bl = State(initialValue: doc.bottomLeft)
     }
 
+    public init(
+        sourceImage: UIImage,
+        initialDocument: DetectedDocument,
+        onApply: @escaping (DetectedDocument) -> Void,
+        onCancel: (() -> Void)? = nil
+    ) {
+        self.originalImage = sourceImage
+        self._currentDocument = .constant(initialDocument)
+        self.onComplete = onApply
+        self._tl = State(initialValue: initialDocument.topLeft)
+        self._tr = State(initialValue: initialDocument.topRight)
+        self._br = State(initialValue: initialDocument.bottomRight)
+        self._bl = State(initialValue: initialDocument.bottomLeft)
+    }
+
     public var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
