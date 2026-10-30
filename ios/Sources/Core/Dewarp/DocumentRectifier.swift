@@ -38,8 +38,8 @@ public final class DocumentRectifier: @unchecked Sendable {
 
     /// 自動將拍下之照片依據框選之 4 個角點進行透視拉平 (Perspective Correction)
     public func correctPerspective(image: UIImage, document: DetectedDocument) -> UIImage? {
-        guard let normalized = Self.normalizedImage(image),
-              let ciImage = CIImage(image: normalized) else { return nil }
+        let normalized = Self.normalizedImage(image)
+        guard let ciImage = CIImage(image: normalized) else { return nil }
 
         let extent = ciImage.extent
         let width = extent.width
@@ -79,8 +79,8 @@ public final class DocumentRectifier: @unchecked Sendable {
         enhanceColor: Bool = true,
         darkenText: Bool = true
     ) -> UIImage {
-        guard let normalized = Self.normalizedImage(image),
-              let ciImage = CIImage(image: normalized) else { return image }
+        let normalized = Self.normalizedImage(image)
+        guard let ciImage = CIImage(image: normalized) else { return image }
 
         var current = ciImage
 

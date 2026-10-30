@@ -1,7 +1,7 @@
 # AI Agent 專案交接與工程維護手冊 (Agent Handover Document)
 
 > **專案名稱**：vFlat 逆向工程與 iOS 原生重構專案 (`vFlat-iOS`)  
-> **專案版本**：`v1.2.3`（Build `123`）  
+> **專案版本**：`v1.2.4`（Build `124`）  
 > **最後更新時間**：2026-10-30  
 > **遠端儲存庫**：`https://github.com/y41418845-CY/vflat`（預設分支：`master`）  
 > **本地工作目錄**：`g:\我的雲端硬碟\工具程式\vflat\`  
@@ -267,6 +267,7 @@ ios/
 
 | 版本 | 日期 | 重點 |
 |---|---|---|
+| `v1.2.4` | 2026-10-30 | 修正 DocumentRectifier optional binding 編譯錯誤 |
 | `v1.2.3` | 2026-10-30 | 修正 @MainActor 預設引數編譯錯誤（ScannerViewModel convenience init） |
 | `v1.2.2` | 2026-10-30 | 修正補光燈假成功、避免對焦鎖定、降低 Metal 快取 flush 頻率 |
 | `v1.2.1` | 2026-10-30 | P0 強化：相簿權限確認、移除合成假曲面、CGContext 安全配置、展平網格驗證 |
