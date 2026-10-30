@@ -216,7 +216,7 @@ public struct PageSwipeDetailView: View {
                     }
                 }
             case .jpgShare(let fileURL):
-                ActivityViewRepresentable(activityItems: [fileURL])
+                ActivityView(activityItems: [fileURL])
             case .moveFolder(let pageId):
                 MoveFolderSheet(viewModel: viewModel, pageIds: [pageId])
             }
@@ -550,7 +550,7 @@ public struct PageSwipeDetailView: View {
         guard let page = currentPage,
               let raw = viewModel.pageStore.rawImage(for: page) ?? viewModel.pageStore.image(for: page) else { return }
         Task {
-            let processed = await DocumentRectifier.applyFilter(image: raw, mode: mode)
+            let processed = DocumentRectifier.shared.applyFilter(mode, to: raw)
             await viewModel.pageStore.updateProcessed(id: page.id, image: processed, filterMode: mode)
             showToast("已套用 \(mode.rawValue)")
         }
@@ -558,8 +558,8 @@ public struct PageSwipeDetailView: View {
 
     private func applyCrop(document: DetectedDocument, for page: ScanPage) async {
         guard let raw = viewModel.pageStore.rawImage(for: page) ?? viewModel.pageStore.image(for: page) else { return }
-        let cropped = await DocumentRectifier.rectify(image: raw, document: document)
-        let filtered = await DocumentRectifier.applyFilter(image: cropped, mode: page.filterMode)
+        let cropped = DocumentRectifier.shared.correctPerspective(image: raw, document: document) ?? raw
+        let filtered = DocumentRectifier.shared.applyFilter(page.filterMode, to: cropped)
         await viewModel.pageStore.updateProcessed(id: page.id, image: filtered, filterMode: page.filterMode)
         showToast("裁剪與幾何透視已更新")
     }
@@ -580,7 +580,7 @@ public struct PageSwipeDetailView: View {
         }
         guard let image = viewModel.pageStore.image(for: page) else { return }
         Task {
-            let recognized = await OCRService.recognizeText(from: image)
+            let recognized = await OCRService.shared.recognizeText(in: image) ?? ""
             let resultText = recognized.isEmpty ? "未偵測到清晰文字" : recognized
             viewModel.pageStore.updateOCR(id: page.id, text: resultText)
             activeModal = .ocrResult(resultText)

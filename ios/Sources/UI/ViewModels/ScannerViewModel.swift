@@ -817,7 +817,6 @@ public struct ScannerError: LocalizedError, CustomStringConvertible {
     public var description: String { message }
 }
 
-extension ScannerViewModel {
     public enum AIEnhancerType: String, CaseIterable, Identifiable {
         case ultra = "極致全開"
         case dewarp = "曲面展平"
@@ -846,7 +845,6 @@ extension ScannerViewModel {
             await applyHandwritingRemoval(to: target)
         }
     }
-}
 
     /// 將當前頁面儲存至相簿為 .jpg 圖片 (真非同步寫入並精確回報結果)
     public func saveCurrentPageToPhotos() async -> Result<Void, ScannerError> {
