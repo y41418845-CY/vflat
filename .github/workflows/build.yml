@@ -18,11 +18,12 @@ jobs:
             -configuration Release \
             CODE_SIGNING_ALLOWED=NO \
             ARCHS=arm64 \
+            -derivedDataPath ./derived \
             build
       - name: Package IPA
         run: |
           mkdir -p Payload
-          cp -r build/Release-iphoneos/vFlat.app Payload/
+          cp -r derived/Build/Products/Release-iphoneos/vFlat.app Payload/
           zip -r vFlat.ipa Payload/
       - uses: actions/upload-artifact@v4
         with:
