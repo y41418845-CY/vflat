@@ -810,16 +810,54 @@ public final class ScannerViewModel: ObservableObject {
         return false
     }
 
+public struct ScannerError: LocalizedError, CustomStringConvertible {
+    public let message: String
+    public init(_ message: String) { self.message = message }
+    public var errorDescription: String? { message }
+    public var description: String { message }
+}
+
+extension ScannerViewModel {
+    public enum AIEnhancerType: String, CaseIterable, Identifiable {
+        case ultra = "極致全開"
+        case dewarp = "曲面展平"
+        case shadow = "消除陰影"
+        case deblur = "文字銳化"
+        case finger = "手指抹除"
+        case handwriting = "清除筆跡"
+
+        public var id: String { rawValue }
+    }
+
+    public func runAIEnhancer(type: AIEnhancerType, targetPageID: UUID? = nil) async {
+        let target = targetPageID.flatMap { id in pages.first(where: { $0.id == id }) }
+        switch type {
+        case .ultra:
+            await applyUltraScan(to: target)
+        case .dewarp:
+            await applyDewarp(to: target)
+        case .shadow:
+            await applyShadowRemoval(to: target)
+        case .deblur:
+            await applyDeblur(to: target)
+        case .finger:
+            await applyFingerRemoval(to: target)
+        case .handwriting:
+            await applyHandwritingRemoval(to: target)
+        }
+    }
+}
+
     /// 將當前頁面儲存至相簿為 .jpg 圖片 (真非同步寫入並精確回報結果)
-    public func saveCurrentPageToPhotos() async -> Result<Void, String> {
+    public func saveCurrentPageToPhotos() async -> Result<Void, ScannerError> {
         let hasPermission = await requestPhotoLibraryAddPermission()
         guard hasPermission else {
-            return .failure("相簿權限不足，請至 iPhone「設定」>「隱私權與安全性」>「照片」允許加入照片。")
+            return .failure(ScannerError("相簿權限不足，請至 iPhone「設定」>「隱私權與安全性」>「照片」允許加入照片。"))
         }
 
         let targetImage = lastPreviewImage ?? pageStore.lastPage.flatMap { pageStore.image(for: $0) }
         guard let image = targetImage else {
-            return .failure("無法取得要儲存的頁面影像。")
+            return .failure(ScannerError("無法取得要儲存的頁面影像。"))
         }
 
         return await withCheckedContinuation { continuation in
@@ -830,7 +868,7 @@ public final class ScannerViewModel: ObservableObject {
                     continuation.resume(returning: .success(()))
                 } else {
                     let errMsg = error?.localizedDescription ?? "儲存失敗"
-                    continuation.resume(returning: .failure("寫入相簿失敗：\(errMsg)"))
+                    continuation.resume(returning: .failure(ScannerError("寫入相簿失敗：\(errMsg)")))
                 }
             }
         }
