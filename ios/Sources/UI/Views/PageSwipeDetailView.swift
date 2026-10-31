@@ -87,6 +87,7 @@ public struct PageSwipeDetailView: View {
     @State private var processingDescription: String? = nil
     @State private var showingAIEraser: Bool = false
     @State private var eraserImage: UIImage? = nil
+    @State private var imageRevision: UUID = UUID()
 
     private enum ActiveModal: Identifiable {
         case aiEnhancer
