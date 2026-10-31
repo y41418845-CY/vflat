@@ -75,9 +75,6 @@ public struct AIEnhancerSheet: View {
                 }
             }
             .padding(.horizontal, 20)
-
-            }
-            .padding(.horizontal, 20)
             .padding(.bottom, 24)
         }
         .background(Color.white)
