@@ -207,69 +207,39 @@ public struct CameraScanView: View {
         }
     }
 
-    // MARK: - 頂部導航列 (1:1 對齊圖一：📁 資料庫 | ⚙️)
+    // MARK: - 頂部導航列 (1:1 對齊原廠圖四：📁 資料庫 | ⚙️)
 
     private var topNavigationBar: some View {
         HStack(alignment: .center) {
             // 資料庫返回膠囊
             Button(action: { dismiss() }) {
-                HStack(spacing: 5) {
+                HStack(spacing: 6) {
                     Image(systemName: "folder")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 14, weight: .semibold))
                     Text("資料庫")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: 16, weight: .semibold))
                 }
                 .foregroundColor(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
                 .background(Color.black.opacity(0.45))
                 .clipShape(Capsule())
             }
-            .fixedSize()
-
-            Spacer()
-
-            // 👑 Upgrade 尊榮 VIP 特權膠囊 (1:1 對齊原廠圖四，單行絕不折行)
-            Button(action: {
-                showToast("👑 VIP 旗艦永久授權已生效，全功能無限暢享！")
-            }) {
-                HStack(spacing: 5) {
-                    Image(systemName: "crown.fill")
-                        .font(.system(size: 13))
-                        .foregroundColor(Color(red: 0.98, green: 0.78, blue: 0.25))
-                    Text("Upgrade")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(.white)
-                        .lineLimit(1)
-                        .allowsTightening(false)
-                        .fixedSize(horizontal: true, vertical: true)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
-                .background(Color.black.opacity(0.55))
-                .clipShape(Capsule())
-                .overlay(
-                    Capsule().stroke(Color(red: 0.98, green: 0.78, blue: 0.25), lineWidth: 1.5)
-                )
-            }
-            .layoutPriority(10)
-            .fixedSize(horizontal: true, vertical: true)
 
             Spacer()
 
             // 設定齒輪按鈕
             Button(action: { viewModel.showingSettings = true }) {
                 Image(systemName: "gearshape")
-                    .font(.system(size: 18))
+                    .font(.system(size: 20))
                     .foregroundColor(.white)
-                    .padding(8)
+                    .padding(9)
                     .background(Color.black.opacity(0.45))
                     .clipShape(Circle())
             }
-            .fixedSize()
         }
         .padding(.horizontal, 16)
-        .padding(.top, 50) // 避開動態島/安全區域
+        .padding(.top, 52) // 避開動態島/安全區域
     }
 
     // MARK: - 頂部第二行快捷按鈕列 (閃光燈、定時器、AUTO SCAN、濾鏡)
@@ -348,18 +318,18 @@ public struct CameraScanView: View {
         .padding(.horizontal, 28)
     }
 
-    // MARK: - 取景窗底緣浮動模式膠囊 (1頁 / 2頁 / 自動)
+    // MARK: - 取景窗底緣浮動模式切換 (1:1 對齊原廠圖四：1 頁 / 2 頁 / 自動)
 
     private var pageModeSelector: some View {
-        HStack(spacing: 16) {
-            // 1 頁 (選中狀態)
+        HStack(spacing: 12) {
+            // 1 頁
             Button(action: {
                 viewModel.scanMode = .single
             }) {
                 Text("1 頁")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(viewModel.scanMode == .single ? Color(red: 0.98, green: 0.85, blue: 0.42) : .white.opacity(0.6))
-                    .padding(.horizontal, 14)
+                    .font(.system(size: 18, weight: viewModel.scanMode == .single ? .bold : .medium))
+                    .foregroundColor(viewModel.scanMode == .single ? Color(red: 0.98, green: 0.82, blue: 0.35) : Color.white.opacity(0.72))
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 6)
                     .background(viewModel.scanMode == .single ? Color.black.opacity(0.65) : Color.clear)
                     .clipShape(Capsule())
@@ -370,9 +340,9 @@ public struct CameraScanView: View {
                 viewModel.scanMode = .doublePage
             }) {
                 Text("2 頁")
-                    .font(.system(size: 17, weight: viewModel.scanMode == .doublePage ? .bold : .medium))
-                    .foregroundColor(viewModel.scanMode == .doublePage ? Color(red: 0.98, green: 0.85, blue: 0.42) : .white.opacity(0.6))
-                    .padding(.horizontal, 14)
+                    .font(.system(size: 18, weight: viewModel.scanMode == .doublePage ? .bold : .medium))
+                    .foregroundColor(viewModel.scanMode == .doublePage ? Color(red: 0.98, green: 0.82, blue: 0.35) : Color.white.opacity(0.72))
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 6)
                     .background(viewModel.scanMode == .doublePage ? Color.black.opacity(0.65) : Color.clear)
                     .clipShape(Capsule())
@@ -383,20 +353,17 @@ public struct CameraScanView: View {
                 viewModel.isAutoCaptureEnabled.toggle()
             }) {
                 Text("自動")
-                    .font(.system(size: 17, weight: viewModel.isAutoCaptureEnabled ? .bold : .medium))
-                    .foregroundColor(viewModel.isAutoCaptureEnabled ? Color(red: 0.98, green: 0.85, blue: 0.42) : .white.opacity(0.6))
-                    .padding(.horizontal, 14)
+                    .font(.system(size: 18, weight: viewModel.isAutoCaptureEnabled ? .bold : .medium))
+                    .foregroundColor(viewModel.isAutoCaptureEnabled ? Color(red: 0.98, green: 0.82, blue: 0.35) : Color.white.opacity(0.72))
+                    .padding(.horizontal, 16)
                     .padding(.vertical, 6)
                     .background(viewModel.isAutoCaptureEnabled ? Color.black.opacity(0.65) : Color.clear)
                     .clipShape(Capsule())
             }
         }
-        .padding(4)
-        .background(Color.black.opacity(0.35))
-        .clipShape(Capsule())
     }
 
-    // MARK: - 下半部純黑控制區 (1:1 對齊圖一：資料夾膠囊 + 縮圖 + 雙環快門 + 相簿)
+    // MARK: - 下半部純黑控制區 (1:1 對齊原廠圖四：資料夾膠囊 + 縮圖 + 雙環快門 + 相簿)
 
     private var bottomPureBlackArea: some View {
         VStack(spacing: 0) {
@@ -406,9 +373,9 @@ public struct CameraScanView: View {
             }) {
                 HStack(spacing: 8) {
                     Image(systemName: "folder")
-                        .font(.system(size: 14))
+                        .font(.system(size: 15))
                     Text(viewModel.pageStore.currentFolderName)
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 16, weight: .semibold))
                     Image(systemName: "chevron.down")
                         .font(.system(size: 11, weight: .bold))
                 }
@@ -418,7 +385,7 @@ public struct CameraScanView: View {
                 .background(Color(white: 0.16))
                 .clipShape(Capsule())
             }
-            .padding(.top, 16)
+            .padding(.top, 14)
             .padding(.bottom, 20)
 
             // 2. 快門控制列 (左：最新縮圖、中：白色雙環快門、右：相簿)
@@ -441,7 +408,7 @@ public struct CameraScanView: View {
                                 .cornerRadius(6)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 6)
-                                        .stroke(Color.white.opacity(0.8), lineWidth: 1.5)
+                                        .stroke(Color.white.opacity(0.85), lineWidth: 1.5)
                                 )
                         } else {
                             RoundedRectangle(cornerRadius: 6)
@@ -479,7 +446,7 @@ public struct CameraScanView: View {
                 Button(action: {
                     viewModel.showingPhotoPicker = true
                 }) {
-                    Image(systemName: "photo.on.rectangle")
+                    Image(systemName: "photo.on.rectangle.angled")
                         .font(.system(size: 26))
                         .foregroundColor(.white)
                         .frame(width: 48, height: 48)
@@ -489,6 +456,8 @@ public struct CameraScanView: View {
             .padding(.horizontal, 36)
             .padding(.bottom, 36)
         }
+        .frame(maxWidth: .infinity)
+        .background(Color.black)
     }
 
     private func showToast(_ message: String) {

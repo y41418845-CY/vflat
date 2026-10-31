@@ -26,10 +26,10 @@ public struct AIEnhancerSheet: View {
             }
             .padding(.top, 8)
 
-            // 標題
+            // 標題 (1:1 對齊圖三原廠尺寸)
             Text("人工智慧增強器")
-                .font(.system(size: 22, weight: .bold))
-                .foregroundColor(Color(red: 0.1, green: 0.1, blue: 0.12))
+                .font(.system(size: 24, weight: .bold))
+                .foregroundColor(Color(red: 0.08, green: 0.08, blue: 0.09))
                 .padding(.horizontal, 20)
 
             // 2x2 增強器矩陣
@@ -92,15 +92,15 @@ public struct AIEnhancerSheet: View {
     ) -> some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 0) {
-                // 標題列
+                // 標題列 (1:1 對齊圖三原廠規格)
                 HStack(spacing: 5) {
                     Text(title)
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(Color(red: 0.16, green: 0.55, blue: 0.45))
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(Color(red: 0.13, green: 0.62, blue: 0.48))
 
                     if crown {
                         Text("👑")
-                            .font(.system(size: 12))
+                            .font(.system(size: 13))
                     }
 
                     Spacer()

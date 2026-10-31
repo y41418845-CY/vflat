@@ -52,7 +52,7 @@ public struct ScanGuideOverlay: View {
                         path.addLine(to: p4)
                         path.closeSubpath()
                     }
-                    .fill(Color(red: 0.98, green: 0.85, blue: 0.25).opacity(0.18))
+                    .fill(Color(red: 0.21, green: 0.82, blue: 0.74).opacity(0.32))
 
                     Path { path in
                         path.move(to: p1)
@@ -62,7 +62,7 @@ public struct ScanGuideOverlay: View {
                         path.closeSubpath()
                     }
                     .stroke(
-                        Color(red: 0.98, green: 0.85, blue: 0.25),
+                        Color(red: 0.21, green: 0.82, blue: 0.74),
                         style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round)
                     )
                 }
