@@ -42,8 +42,8 @@ public struct AIEraserView: View {
 
     public var body: some View {
         ZStack {
-            // 背景淺白底色（1:1 對齊原廠相片檢視底色）
-            Color(white: 0.98).ignoresSafeArea()
+            // 背景深色（原廠相片檢視底色，徹底避免白屏錯覺）
+            Color(red: 0.10, green: 0.10, blue: 0.11).ignoresSafeArea()
 
             VStack(spacing: 0) {
                 // 1. 中央主要畫布取景與塗抹手勢區 (無頂部黑色工具列，文檔頂格鋪滿)

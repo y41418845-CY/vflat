@@ -80,19 +80,28 @@ public struct PageSwipeDetailView: View {
     private let initialPageId: UUID?
     @State private var selectedIndex: Int = 0
     @State private var showingFilterSelector: Bool = false
-    @State private var showingLoupeCropView: Bool = false
     @State private var showingMoreMenuActionSheet: Bool = false
     @State private var showingThumbnailStrip: Bool = false
     @State private var toastMessage: String? = nil
     @State private var processingDescription: String? = nil
-    @State private var showingAIEraser: Bool = false
-    @State private var eraserImage: UIImage? = nil
-    @State private var comparisonSourceImage: UIImage? = nil
-    @State private var enhanceComparisonMode: AIEnhanceComparisonView.Mode? = nil
     @State private var imageRevision: UUID = UUID()
+
+    private enum AIOverlayType: Identifiable {
+        case eraser(UIImage, ScanPage)
+        case comparison(AIEnhanceComparisonView.Mode, UIImage, ScanPage)
+
+        var id: String {
+            switch self {
+            case .eraser: return "eraser"
+            case .comparison(let mode, _, _): return "comp_\(mode.rawValue)"
+            }
+        }
+    }
+    @State private var activeAIOverlay: AIOverlayType? = nil
 
     private enum ActiveModal: Identifiable {
         case aiEnhancer
+        case loupeCrop
         case pdfExport
         case ocrResult(String)
         case jpgShare(URL)
@@ -102,6 +111,8 @@ public struct PageSwipeDetailView: View {
             switch self {
             case .aiEnhancer:
                 return "aiEnhancer"
+            case .loupeCrop:
+                return "loupeCrop"
             case .pdfExport:
                 return "pdfExport"
             case .ocrResult(let text):
@@ -153,7 +164,85 @@ public struct PageSwipeDetailView: View {
                 bottomToolBar
             }
 
-            // 5. AI 後處理進度遮罩
+            // 5. 原廠 AI 功能獨立全螢幕覆蓋層 (1:1 像素級，徹底避免 Presentation 衝突與白屏)
+            if let overlay = activeAIOverlay {
+                switch overlay {
+                case .eraser(let img, let page):
+                    AIEraserView(
+                        sourceImage: img,
+                        onApply: { cleaned in
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                activeAIOverlay = nil
+                            }
+                            Task {
+                                await pageStore.updateProcessed(id: page.id, image: cleaned, filterMode: page.filterMode)
+                                await MainActor.run {
+                                    self.imageRevision = UUID()
+                                    self.showToast("塗鴉橡皮擦完成")
+                                }
+                            }
+                        },
+                        onCancel: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                activeAIOverlay = nil
+                            }
+                            showToast("塗鴉橡皮擦已取消")
+                        }
+                    )
+                    .transition(.opacity)
+                    .zIndex(100)
+
+                case .comparison(let mode, let img, let page):
+                    AIEnhanceComparisonView(
+                        mode: mode,
+                        beforeImage: img,
+                        onOverwrite: { resultImage in
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                activeAIOverlay = nil
+                            }
+                            Task {
+                                await pageStore.updateProcessed(id: page.id, image: resultImage, filterMode: page.filterMode)
+                                await MainActor.run {
+                                    self.imageRevision = UUID()
+                                    self.showToast("已覆蓋此頁面")
+                                }
+                            }
+                        },
+                        onSaveAsNew: { resultImage in
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                activeAIOverlay = nil
+                            }
+                            Task {
+                                if let newPage = await pageStore.insert(
+                                    processed: resultImage,
+                                    raw: pageStore.rawImage(for: page),
+                                    filterMode: page.filterMode,
+                                    document: page.document,
+                                    folderId: page.folderId,
+                                    afterPageId: page.id
+                                ) {
+                                    await MainActor.run {
+                                        if let newIndex = self.pages.firstIndex(where: { $0.id == newPage.id }) {
+                                            self.selectedIndex = newIndex
+                                        }
+                                        self.imageRevision = UUID()
+                                        self.showToast("已保存為新頁面")
+                                    }
+                                }
+                            }
+                        },
+                        onCancel: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                activeAIOverlay = nil
+                            }
+                        }
+                    )
+                    .transition(.opacity)
+                    .zIndex(100)
+                }
+            }
+
+            // 6. AI 後處理進度遮罩
             if let desc = processingDescription ?? (viewModel.isProcessingCapture ? "處理中..." : nil) {
                 ZStack {
                     Color.black.opacity(0.65).ignoresSafeArea()
@@ -172,7 +261,7 @@ public struct PageSwipeDetailView: View {
                 }
             }
 
-            // 6. Toast 提示膠囊
+            // 7. Toast 提示膠囊
             if let msg = toastMessage {
                 VStack {
                     Spacer()
@@ -201,31 +290,48 @@ public struct PageSwipeDetailView: View {
             switch modal {
             case .aiEnhancer:
                 AIEnhancerSheet { type in
-                    guard let page = currentPage, let img = pageStore.image(for: page) else { return }
-                    switch type {
-                    case .eraser:
-                        eraserImage = img
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            showingAIEraser = true
-                        }
-                    case .handwriting:
-                        comparisonSourceImage = img
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            enhanceComparisonMode = .handwriting
-                        }
-                    case .deblur:
-                        comparisonSourceImage = img
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            enhanceComparisonMode = .deblur
-                        }
-                    case .dewarp:
-                        comparisonSourceImage = img
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            enhanceComparisonMode = .dewarp
-                        }
-                    default:
-                        runAI(type)
+                    guard let page = currentPage,
+                          let img = pageStore.image(for: page) ?? pageStore.rawImage(for: page) else {
+                        showToast("無法載入當前頁面影像")
+                        return
                     }
+                    activeModal = nil
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        switch type {
+                        case .eraser:
+                            activeAIOverlay = .eraser(img, page)
+                        case .handwriting:
+                            activeAIOverlay = .comparison(.handwriting, img, page)
+                        case .deblur:
+                            activeAIOverlay = .comparison(.deblur, img, page)
+                        case .dewarp:
+                            activeAIOverlay = .comparison(.dewarp, img, page)
+                        default:
+                            runAI(type)
+                        }
+                    }
+                }
+            case .loupeCrop:
+                if let page = currentPage, let image = pageStore.rawImage(for: page) ?? pageStore.image(for: page) {
+                    LoupeCropView(
+                        sourceImage: image,
+                        initialDocument: page.document ?? DetectedDocument(
+                            topLeft: CGPoint(x: 0, y: 0),
+                            topRight: CGPoint(x: 1, y: 0),
+                            bottomRight: CGPoint(x: 1, y: 1),
+                            bottomLeft: CGPoint(x: 0, y: 1),
+                            confidence: 1.0
+                        ),
+                        onApply: { updatedDoc in
+                            activeModal = nil
+                            Task {
+                                await applyCrop(document: updatedDoc, for: page)
+                            }
+                        },
+                        onCancel: {
+                            activeModal = nil
+                        }
+                    )
                 }
             case .pdfExport:
                 PDFExportSheet(viewModel: viewModel)
@@ -235,92 +341,6 @@ public struct PageSwipeDetailView: View {
                 ActivityView(activityItems: [fileURL])
             case .moveFolder(let pageId):
                 MoveFolderSheet(viewModel: viewModel, pageIds: [pageId])
-            }
-        }
-        .fullScreenCover(isPresented: $showingAIEraser) {
-            if let img = eraserImage, let page = currentPage {
-                AIEraserView(
-                    sourceImage: img,
-                    onApply: { cleaned in
-                        showingAIEraser = false
-                        Task {
-                            await pageStore.updateProcessed(id: page.id, image: cleaned, filterMode: page.filterMode)
-                            await MainActor.run {
-                                self.imageRevision = UUID()
-                                self.showToast("塗鴉橡皮擦完成")
-                            }
-                        }
-                    },
-                    onCancel: {
-                        showingAIEraser = false
-                        showToast("塗鴉橡皮擦已取消")
-                    }
-                )
-            }
-        }
-        .fullScreenCover(item: $enhanceComparisonMode) { mode in
-            if let img = comparisonSourceImage, let page = currentPage {
-                AIEnhanceComparisonView(
-                    mode: mode,
-                    beforeImage: img,
-                    onOverwrite: { resultImage in
-                        enhanceComparisonMode = nil
-                        Task {
-                            await pageStore.updateProcessed(id: page.id, image: resultImage, filterMode: page.filterMode)
-                            await MainActor.run {
-                                self.imageRevision = UUID()
-                                self.showToast("已覆蓋此頁面")
-                            }
-                        }
-                    },
-                    onSaveAsNew: { resultImage in
-                        enhanceComparisonMode = nil
-                        Task {
-                            if let newPage = await pageStore.insert(
-                                processed: resultImage,
-                                raw: pageStore.rawImage(for: page),
-                                filterMode: page.filterMode,
-                                document: page.document,
-                                folderId: page.folderId,
-                                afterPageId: page.id
-                            ) {
-                                await MainActor.run {
-                                    if let newIndex = self.pages.firstIndex(where: { $0.id == newPage.id }) {
-                                        self.selectedIndex = newIndex
-                                    }
-                                    self.imageRevision = UUID()
-                                    self.showToast("已保存為新頁面")
-                                }
-                            }
-                        }
-                    },
-                    onCancel: {
-                        enhanceComparisonMode = nil
-                    }
-                )
-            }
-        }
-        .sheet(isPresented: $showingLoupeCropView) {
-            if let page = currentPage, let image = pageStore.rawImage(for: page) ?? pageStore.image(for: page) {
-                LoupeCropView(
-                    sourceImage: image,
-                    initialDocument: page.document ?? DetectedDocument(
-                        topLeft: CGPoint(x: 0, y: 0),
-                        topRight: CGPoint(x: 1, y: 0),
-                        bottomRight: CGPoint(x: 1, y: 1),
-                        bottomLeft: CGPoint(x: 0, y: 1),
-                        confidence: 1.0
-                    ),
-                    onApply: { updatedDoc in
-                        showingLoupeCropView = false
-                        Task {
-                            await applyCrop(document: updatedDoc, for: page)
-                        }
-                    },
-                    onCancel: {
-                        showingLoupeCropView = false
-                    }
-                )
             }
         }
         .confirmationDialog("更多選項", isPresented: $showingMoreMenuActionSheet, titleVisibility: .visible) {
@@ -521,7 +541,7 @@ public struct PageSwipeDetailView: View {
                 toolButton(
                     icon: "crop",
                     title: "裁剪",
-                    action: { showingLoupeCropView = true }
+                    action: { activeModal = .loupeCrop }
                 )
 
                 // 2. 增強 (點擊開啟原廠 1:1 人工智慧增強器卡片面板)

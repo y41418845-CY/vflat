@@ -177,17 +177,15 @@ public struct AIEnhanceComparisonView: View {
 
             // 頂層：處理後（After）增強圖（由左至右依滑桿位置遮罩）
             if !isPressingPeekOriginal {
+                let maskX = size.width * splitRatio
+                let maskW = max(0, size.width - maskX)
                 Image(uiImage: after)
                     .resizable()
                     .scaledToFit()
                     .frame(width: size.width, height: size.height)
                     .mask(
-                        HStack(spacing: 0) {
-                            Spacer()
-                                .frame(width: max(0, size.width * splitRatio))
-                            Rectangle()
-                                .fill(Color.white)
-                        }
+                        Rectangle()
+                            .path(in: CGRect(x: maskX, y: 0, width: maskW, height: size.height))
                     )
             }
 
