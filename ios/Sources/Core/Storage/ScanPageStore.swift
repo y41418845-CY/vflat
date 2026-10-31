@@ -378,6 +378,62 @@ public final class ScanPageStore: ObservableObject {
         return page
     }
 
+    /// 在指定頁面之後插入新頁面（另存為新頁面使用）
+    @discardableResult
+    public func insert(
+        processed: UIImage,
+        raw: UIImage? = nil,
+        filterMode: DocumentFilterMode,
+        document: DetectedDocument? = nil,
+        folderId: UUID? = nil,
+        afterPageId: UUID? = nil
+    ) async -> ScanPage? {
+        let id = UUID()
+        let targetFolderId = folderId ?? currentFolderId
+        let processedName = "\(id.uuidString)_p.jpg"
+        let rawName = raw == nil ? nil : "\(id.uuidString)_r.jpg"
+        let directory = rootURL
+        let createdAt = Date()
+        let corners = ScanPage.cornersArray(from: document)
+        let filterRaw = filterMode.rawValue
+
+        let result = await Task.detached(priority: .userInitiated) { () -> (ScanPage, UIImage)? in
+            guard let processedData = processed.jpegData(compressionQuality: 0.9) else { return nil }
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try processedData.write(to: directory.appendingPathComponent(processedName), options: .atomic)
+                if let raw = raw, let rawData = raw.jpegData(compressionQuality: 0.92) {
+                    try rawData.write(to: directory.appendingPathComponent(rawName!), options: .atomic)
+                }
+            } catch {
+                print("[ScanPageStore] 影像插入寫入失敗: \(error)")
+                return nil
+            }
+
+            let page = ScanPage(
+                id: id,
+                createdAt: createdAt,
+                folderId: targetFolderId,
+                processedFileName: processedName,
+                rawFileName: rawName,
+                filterModeRaw: filterRaw,
+                corners: corners
+            )
+            let thumbnail = ScanPageStore.makeThumbnail(from: processedData, maxPixel: 320)
+            return (page, thumbnail ?? processed)
+        }.value
+
+        guard let (page, thumbnail) = result else { return nil }
+        if let afterId = afterPageId, let idx = pages.firstIndex(where: { $0.id == afterId }) {
+            pages.insert(page, at: idx + 1)
+        } else {
+            pages.append(page)
+        }
+        thumbnailCache[id] = thumbnail
+        persistIndex()
+        return page
+    }
+
     /// 以新的已處理影像取代指定頁（切換濾鏡或重新裁切後呼叫）
     @discardableResult
     public func updateProcessed(id: UUID, image: UIImage, filterMode: DocumentFilterMode) async -> Bool {

@@ -87,6 +87,8 @@ public struct PageSwipeDetailView: View {
     @State private var processingDescription: String? = nil
     @State private var showingAIEraser: Bool = false
     @State private var eraserImage: UIImage? = nil
+    @State private var comparisonSourceImage: UIImage? = nil
+    @State private var enhanceComparisonMode: AIEnhanceComparisonView.Mode? = nil
     @State private var imageRevision: UUID = UUID()
 
     private enum ActiveModal: Identifiable {
@@ -199,12 +201,29 @@ public struct PageSwipeDetailView: View {
             switch modal {
             case .aiEnhancer:
                 AIEnhancerSheet { type in
-                    if type == .eraser, let page = currentPage, let img = pageStore.image(for: page) {
+                    guard let page = currentPage, let img = pageStore.image(for: page) else { return }
+                    switch type {
+                    case .eraser:
                         eraserImage = img
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                             showingAIEraser = true
                         }
-                    } else {
+                    case .handwriting:
+                        comparisonSourceImage = img
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            enhanceComparisonMode = .handwriting
+                        }
+                    case .deblur:
+                        comparisonSourceImage = img
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            enhanceComparisonMode = .deblur
+                        }
+                    case .dewarp:
+                        comparisonSourceImage = img
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            enhanceComparisonMode = .dewarp
+                        }
+                    default:
                         runAI(type)
                     }
                 }
@@ -227,6 +246,7 @@ public struct PageSwipeDetailView: View {
                         Task {
                             await pageStore.updateProcessed(id: page.id, image: cleaned, filterMode: page.filterMode)
                             await MainActor.run {
+                                self.imageRevision = UUID()
                                 self.showToast("塗鴉橡皮擦完成")
                             }
                         }
@@ -234,6 +254,48 @@ public struct PageSwipeDetailView: View {
                     onCancel: {
                         showingAIEraser = false
                         showToast("塗鴉橡皮擦已取消")
+                    }
+                )
+            }
+        }
+        .fullScreenCover(item: $enhanceComparisonMode) { mode in
+            if let img = comparisonSourceImage, let page = currentPage {
+                AIEnhanceComparisonView(
+                    mode: mode,
+                    beforeImage: img,
+                    onOverwrite: { resultImage in
+                        enhanceComparisonMode = nil
+                        Task {
+                            await pageStore.updateProcessed(id: page.id, image: resultImage, filterMode: page.filterMode)
+                            await MainActor.run {
+                                self.imageRevision = UUID()
+                                self.showToast("已覆蓋此頁面")
+                            }
+                        }
+                    },
+                    onSaveAsNew: { resultImage in
+                        enhanceComparisonMode = nil
+                        Task {
+                            if let newPage = await pageStore.insert(
+                                processed: resultImage,
+                                raw: pageStore.rawImage(for: page),
+                                filterMode: page.filterMode,
+                                document: page.document,
+                                folderId: page.folderId,
+                                afterPageId: page.id
+                            ) {
+                                await MainActor.run {
+                                    if let newIndex = self.pages.firstIndex(where: { $0.id == newPage.id }) {
+                                        self.selectedIndex = newIndex
+                                    }
+                                    self.imageRevision = UUID()
+                                    self.showToast("已保存為新頁面")
+                                }
+                            }
+                        }
+                    },
+                    onCancel: {
+                        enhanceComparisonMode = nil
                     }
                 )
             }
