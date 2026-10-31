@@ -1,7 +1,7 @@
 # AI Agent 專案交接與工程維護手冊 (Agent Handover Document)
 
 > **專案名稱**：vFlat 逆向工程與 iOS 原生重構專案 (`vFlat-iOS`)  
-> **專案版本**：`v1.7.9`（Build `179`）  
+> **專案版本**：`v1.8.0`（Build `180`）  
 > **最後更新時間**：2026-10-31  
 > **遠端儲存庫**：`https://github.com/y41418845-CY/vflat`（當前分支：`feature/authentic-replica-ui`，預設分支：`master`）  
 > **本地工作目錄**：`g:\我的雲端硬碟\工具程式\vflat\`  
@@ -113,6 +113,7 @@ ios/
 | **30 天垃圾桶 (最近刪除)** | [x] 已完成 | `TrashBinView` 支援單頁還原、全部還原、永久刪除與自動 30 天過期。 |
 | **原廠 AI 橡皮擦 (v1.7.7)** | [x] 已完成 | `AIEraserView`：花體字筆劃粗細無級調整、Undo/Redo、底圖滿版與原廠薄荷綠按鈕。 |
 | **原廠 AI 增強比對檢視 (v1.7.8)** | [x] 已完成 | `AIEnhanceComparisonView`：「擦除筆記」、「模糊校正」、「拉直」1:1 左右分割滑桿、長按比對原圖、雙指縮放與「覆蓋/保存為新頁面」儲存選單。 |
+| **AI 橡皮擦即時擦除 (v1.8.0)** | [x] 已完成 | 原廠 1:1「隨塗隨擦」：手指抬起瞬間局部即時 AI Inpaint 抹平、多步 Undo/Redo 歷史堆疊、局部 Bounding-Box 毫秒級極速運算。 |
 
 ---
 

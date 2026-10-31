@@ -58,29 +58,36 @@ public final class AIInpainter {
         guard let maskBuffer = maskContext.data else { return image }
         let maskPixels = maskBuffer.assumingMemoryBound(to: UInt8.self)
 
-        // 3. 採樣周圍非遮罩區域的「紙張平均背景色」
+        // 3. 掃描遮罩外接矩形 (Bounding Box) 與周圍紙張背景色
+        var minX = width
+        var maxX = 0
+        var minY = height
+        var maxY = 0
         var bgSumR: Int = 0
         var bgSumG: Int = 0
         var bgSumB: Int = 0
         var bgCount: Int = 0
         var maskCount: Int = 0
 
-        // 取樣間隔步進以保證 60fps 高速響應
-        let step = max(1, min(width, height) / 150)
-        for y in stride(from: 0, to: height, by: step) {
+        // 高速掃描 Mask 邊界與底色
+        let scanStep = max(1, min(width, height) / 200)
+        for y in stride(from: 0, to: height, by: scanStep) {
             let rowOffset = y * bytesPerRow
             let maskRowOffset = y * width
-            for x in stride(from: 0, to: width, by: step) {
+            for x in stride(from: 0, to: width, by: scanStep) {
                 let maskVal = maskPixels[maskRowOffset + x]
                 if maskVal > 50 {
                     maskCount += 1
+                    if x < minX { minX = x }
+                    if x > maxX { maxX = x }
+                    if y < minY { minY = y }
+                    if y > maxY { maxY = y }
                 } else {
                     let pIdx = rowOffset + x * 4
                     let r = Int(pixels[pIdx])
                     let g = Int(pixels[pIdx + 1])
                     let b = Int(pixels[pIdx + 2])
                     let luma = (r * 299 + g * 587 + b * 114) / 1000
-                    // 僅取亮度高於 140 的紙張底色，排除黑色墨跡
                     if luma > 140 {
                         bgSumR += r
                         bgSumG += g
@@ -91,27 +98,35 @@ public final class AIInpainter {
             }
         }
 
-        guard maskCount > 0 else { return image }
+        guard maskCount > 0, minX <= maxX, minY <= maxY else { return image }
+
+        // 外擴 32 像素作為周邊底色融合緩衝區
+        let margin = 32
+        let startX = max(0, minX - margin)
+        let endX = min(width - 1, maxX + margin)
+        let startY = max(0, minY - margin)
+        let endY = min(height - 1, maxY + margin)
 
         let defaultPaperR: UInt8 = bgCount > 0 ? UInt8(min(255, bgSumR / bgCount)) : 248
         let defaultPaperG: UInt8 = bgCount > 0 ? UInt8(min(255, bgSumG / bgCount)) : 248
         let defaultPaperB: UInt8 = bgCount > 0 ? UInt8(min(255, bgSumB / bgCount)) : 246
 
-        // 4. 原廠 getInpaintColor 雙階段泊松邊緣擴散與紋理修補
-        // 第一階段：採樣塗抹邊界的周邊底色與明暗梯度
-        var tempR = [UInt8](repeating: defaultPaperR, count: width * height)
-        var tempG = [UInt8](repeating: defaultPaperG, count: width * height)
-        var tempB = [UInt8](repeating: defaultPaperB, count: width * height)
+        // 4. 原廠 getInpaintColor 雙階段泊松邊緣擴散與紋理修補 (僅在局部 Bounding Box 內極速運算)
+        let localW = endX - startX + 1
+        let localH = endY - startY + 1
+        var tempR = [UInt8](repeating: defaultPaperR, count: localW * localH)
+        var tempG = [UInt8](repeating: defaultPaperG, count: localW * localH)
+        var tempB = [UInt8](repeating: defaultPaperB, count: localW * localH)
 
-        for y in 0..<height {
+        for y in startY...endY {
             let rowOffset = y * bytesPerRow
             let maskRowOffset = y * width
-            let tempOffset = y * width
+            let localRow = (y - startY) * localW
 
-            for x in 0..<width {
+            for x in startX...endX {
                 let maskVal = maskPixels[maskRowOffset + x]
                 let pIdx = rowOffset + x * 4
-                let tIdx = tempOffset + x
+                let tIdx = localRow + (x - startX)
 
                 if maskVal <= 50 {
                     // 非遮罩區保持原圖像素
@@ -167,12 +182,12 @@ public final class AIInpainter {
         }
 
         // 第二階段：遮罩交界處 3x3 雙線性抗鋸齒平滑，消除邊緣拼接感
-        for y in 0..<height {
+        for y in startY...endY {
             let rowOffset = y * bytesPerRow
             let maskRowOffset = y * width
-            let tempOffset = y * width
+            let localRow = (y - startY) * localW
 
-            for x in 0..<width {
+            for x in startX...endX {
                 let maskVal = maskPixels[maskRowOffset + x]
                 guard maskVal > 50 else { continue }
 
@@ -182,13 +197,13 @@ public final class AIInpainter {
                 var count = 0
 
                 for dy in -1...1 {
-                    let ny = y + dy
-                    guard ny >= 0 && ny < height else { continue }
-                    let nTempOffset = ny * width
+                    let ly = (y - startY) + dy
+                    guard ly >= 0 && ly < localH else { continue }
+                    let nLocalRow = ly * localW
                     for dx in -1...1 {
-                        let nx = x + dx
-                        guard nx >= 0 && nx < width else { continue }
-                        let nIdx = nTempOffset + nx
+                        let lx = (x - startX) + dx
+                        guard lx >= 0 && lx < localW else { continue }
+                        let nIdx = nLocalRow + lx
                         sumR += Int(tempR[nIdx])
                         sumG += Int(tempG[nIdx])
                         sumB += Int(tempB[nIdx])
@@ -204,6 +219,7 @@ public final class AIInpainter {
                 }
             }
         }
+
 
         guard let outputCG = baseContext.makeImage() else { return image }
         return UIImage(cgImage: outputCG, scale: image.scale, orientation: image.imageOrientation)

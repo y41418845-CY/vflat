@@ -4,155 +4,81 @@ import SwiftUI
 import UIKit
 
 /// 1:1 復刻原廠「AI 橡皮擦 / InpaintViewController」互動編輯視窗
-/// 像素級對齊 10:17 原廠截圖配置：
-/// 1. 簡潔純白現代面板，無頂部多餘飾條，底圖全幅可視
+/// 像素級對齊 10:17 原廠截圖配置與即時擦除行為：
+/// 1. 隨塗隨擦：使用者手指劃過並放開時，立即在該區域進行 AI Inpaint 即時抹平，消除字跡/污漬
 /// 2. 筆刷尺寸粗細無級滑動調節 (左：細 cursive 筆畫 icon、中：原廠薄荷綠滑塊、右：粗 cursive 筆畫 icon)
 /// 3. 底部原廠操作列：左側「取消」、中央雙圓環「Undo 復原 / Redo 重做」、右側「儲存」
-/// 4. 原廠取消警告對話框 (「您真的要取消嗎？正在進行的工作可能會被取消。」)
-/// 5. 原廠塗鴉進行中提示視窗 (「塗鴉橡皮擦正在進行中，如果您關閉應用程序，工作就會停止」)
-/// 6. 雙階段泊松底色擴散調和核心 (AIInpainter)
+/// 4. 歷史堆疊：支援多步復原與重做
+/// 5. 沉浸深色畫布，文檔頂格居中全幅展現
 public struct AIEraserView: View {
     public let sourceImage: UIImage
     public let onApply: (UIImage) -> Void
     public let onCancel: () -> Void
 
-    @State private var lines: [DoodleLine] = []
-    @State private var redoLines: [DoodleLine] = []
-    @State private var currentLine: DoodleLine? = nil
+    @State private var currentImage: UIImage
+    @State private var undoStack: [UIImage] = []
+    @State private var redoStack: [UIImage] = []
+    @State private var activeStroke: [CGPoint] = []
     @State private var brushSize: CGFloat = 26
-    @State private var isProcessing: Bool = false
+    @State private var isErasingStroke: Bool = false
     @State private var showingCancelAlert: Bool = false
-    @State private var imageDisplaySize: CGSize = .zero
-
-    // 畫布縮放平移狀態 (方便塗抹細微文字)
-    @State private var canvasScale: CGFloat = 1.0
-    @State private var canvasOffset: CGSize = .zero
-
-    public struct DoodleLine: Identifiable {
-        public let id = UUID()
-        public var points: [CGPoint]
-        public var lineWidth: CGFloat
-    }
 
     public init(sourceImage: UIImage, onApply: @escaping (UIImage) -> Void, onCancel: @escaping () -> Void) {
         self.sourceImage = sourceImage
+        self._currentImage = State(initialValue: sourceImage)
         self.onApply = onApply
         self.onCancel = onCancel
     }
 
     public var body: some View {
         ZStack {
-            // 背景深色（原廠相片檢視底色，徹底避免白屏錯覺）
+            // 背景深色（原廠相片檢視底色）
             Color(red: 0.10, green: 0.10, blue: 0.11).ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // 1. 中央主要畫布取景與塗抹手勢區 (無頂部黑色工具列，文檔頂格鋪滿)
+                // 1. 中央主要畫布取景與即時塗抹擦除手勢區
                 GeometryReader { geo in
+                    let containerSize = geo.size
+                    let displayRect = calculateImageDisplayRect(containerSize: containerSize, image: currentImage)
+
                     ZStack {
-                        // 文檔底圖
-                        Image(uiImage: sourceImage)
+                        // 當前底圖 (即時反映擦除效果)
+                        Image(uiImage: currentImage)
                             .resizable()
                             .scaledToFit()
-                            .scaleEffect(canvasScale)
-                            .offset(canvasOffset)
-                            .background(
-                                GeometryReader { imgGeo in
-                                    Color.clear
-                                        .onAppear {
-                                            self.imageDisplaySize = imgGeo.size
-                                        }
-                                        .onChange(of: imgGeo.size) { newSize in
-                                            self.imageDisplaySize = newSize
-                                        }
-                                }
-                            )
+                            .frame(width: containerSize.width, height: containerSize.height)
 
-                        // 手繪塗抹路徑預覽 (原廠經典半透明青綠色 #36D1BC 筆觸)
+                        // 手繪塗抹中路徑預覽 (原廠經典半透明青綠色 #36D1BC 筆觸)
                         Canvas { context, size in
-                            for line in lines {
+                            if activeStroke.count >= 2 {
                                 var path = Path()
-                                guard let first = line.points.first else { continue }
-                                path.move(to: first)
-                                for pt in line.points.dropFirst() {
+                                path.move(to: activeStroke[0])
+                                for pt in activeStroke.dropFirst() {
                                     path.addLine(to: pt)
                                 }
                                 context.stroke(
                                     path,
-                                    with: .color(Color(red: 0.21, green: 0.82, blue: 0.74).opacity(0.45)),
-                                    style: StrokeStyle(lineWidth: line.lineWidth, lineCap: .round, lineJoin: .round)
-                                )
-                            }
-
-                            if let cur = currentLine, let first = cur.points.first {
-                                var path = Path()
-                                path.move(to: first)
-                                for pt in cur.points.dropFirst() {
-                                    path.addLine(to: pt)
-                                }
-                                context.stroke(
-                                    path,
-                                    with: .color(Color(red: 0.21, green: 0.82, blue: 0.74).opacity(0.55)),
-                                    style: StrokeStyle(lineWidth: cur.lineWidth, lineCap: .round, lineJoin: .round)
+                                    with: .color(Color(red: 0.21, green: 0.82, blue: 0.74).opacity(0.50)),
+                                    style: StrokeStyle(lineWidth: brushSize, lineCap: .round, lineJoin: .round)
                                 )
                             }
                         }
-                        .scaleEffect(canvasScale)
-                        .offset(canvasOffset)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
                     .gesture(
                         DragGesture(minimumDistance: 0)
                             .onChanged { value in
-                                let adjustedPoint = CGPoint(
-                                    x: (value.location.x - geo.size.width / 2 - canvasOffset.width) / canvasScale + geo.size.width / 2,
-                                    y: (value.location.y - geo.size.height / 2 - canvasOffset.height) / canvasScale + geo.size.height / 2
-                                )
-                                if currentLine == nil {
-                                    currentLine = DoodleLine(points: [adjustedPoint], lineWidth: brushSize)
-                                } else {
-                                    currentLine?.points.append(adjustedPoint)
-                                }
+                                activeStroke.append(value.location)
                             }
                             .onEnded { _ in
-                                if let finished = currentLine {
-                                    lines.append(finished)
-                                    redoLines.removeAll() // 新筆跡清空 redo
-                                    currentLine = nil
-                                }
+                                handleStrokeEnded(displayRect: displayRect)
                             }
                     )
                 }
 
                 // 2. 底部原廠 1:1 控制抽屜面板 (筆刷滑塊 + 取消 / 復原 / 重做 / 儲存)
                 bottomControlPanel
-            }
-
-            // 3. 原廠塗鴉橡皮擦運算中進度視窗 (1:1 對齊官方 scribble_eraser_progress_title)
-            if isProcessing {
-                ZStack {
-                    Color.black.opacity(0.7).ignoresSafeArea()
-
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                            .scaleEffect(1.4)
-
-                        Text("塗鴉橡皮擦正在進行中")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
-
-                        Text("如果您關閉應用程序，工作就會停止")
-                            .font(.system(size: 13))
-                            .foregroundColor(Color.white.opacity(0.8))
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 24)
-                    .background(Color(white: 0.18, opacity: 0.96))
-                    .cornerRadius(18)
-                    .shadow(radius: 12)
-                }
             }
         }
         // 原廠「您真的要取消嗎？」確認視窗
@@ -165,6 +91,107 @@ public struct AIEraserView: View {
                 },
                 secondaryButton: .cancel(Text("繼續編輯"))
             )
+        }
+    }
+
+    // MARK: - 計算圖片在 scaledToFit 下的實際呈現矩形
+
+    private func calculateImageDisplayRect(containerSize: CGSize, image: UIImage) -> CGRect {
+        guard containerSize.width > 0, containerSize.height > 0 else { return .zero }
+        let imgSize = image.size
+        guard imgSize.width > 0, imgSize.height > 0 else { return .zero }
+
+        let imgAspect = imgSize.width / imgSize.height
+        let containerAspect = containerSize.width / containerSize.height
+
+        var renderW: CGFloat = 0
+        var renderH: CGFloat = 0
+        if imgAspect > containerAspect {
+            renderW = containerSize.width
+            renderH = containerSize.width / imgAspect
+        } else {
+            renderH = containerSize.height
+            renderW = containerSize.height * imgAspect
+        }
+
+        let originX = (containerSize.width - renderW) / 2
+        let originY = (containerSize.height - renderH) / 2
+        return CGRect(x: originX, y: originY, width: renderW, height: renderH)
+    }
+
+    // MARK: - 手指放開瞬間：即刻執行單筆局部 AI Inpaint 擦除
+
+    private func handleStrokeEnded(displayRect: CGRect) {
+        guard activeStroke.count >= 2, displayRect.width > 0, displayRect.height > 0 else {
+            activeStroke.removeAll()
+            return
+        }
+
+        let strokePoints = activeStroke
+        activeStroke.removeAll()
+
+        guard let baseCG = currentImage.cgImage else { return }
+        let imgW = baseCG.width
+        let imgH = baseCG.height
+        let scaleX = CGFloat(imgW) / displayRect.width
+        let scaleY = CGFloat(imgH) / displayRect.height
+        let linePx = brushSize * max(scaleX, scaleY)
+
+        // 1. 將當前畫面備份至 Undo 堆疊
+        undoStack.append(currentImage)
+        redoStack.removeAll()
+
+        // 2. 在背景極速繪製 Mask 並計算 Inpaint
+        isErasingStroke = true
+        let snapshotImage = currentImage
+
+        Task.detached(priority: .userInitiated) {
+            let colorSpace = CGColorSpaceCreateDeviceGray()
+            guard let maskCtx = CGContext(
+                data: nil,
+                width: imgW,
+                height: imgH,
+                bitsPerComponent: 8,
+                bytesPerRow: imgW,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.none.rawValue
+            ) else {
+                return
+            }
+
+            // 黑色背景 (代表保留原圖)
+            maskCtx.setFillColor(gray: 0.0, alpha: 1.0)
+            maskCtx.fill(CGRect(x: 0, y: 0, width: imgW, height: imgH))
+
+            // 白色筆劃 (代表擦除修復區域)
+            maskCtx.setStrokeColor(gray: 1.0, alpha: 1.0)
+            maskCtx.setLineCap(.round)
+            maskCtx.setLineJoin(.round)
+            maskCtx.setLineWidth(linePx)
+
+            maskCtx.beginPath()
+            let first = strokePoints[0]
+            let firstImgX = (first.x - displayRect.origin.x) * scaleX
+            let firstImgY = CGFloat(imgH) - (first.y - displayRect.origin.y) * scaleY
+            maskCtx.move(to: CGPoint(x: firstImgX, y: firstImgY))
+
+            for pt in strokePoints.dropFirst() {
+                let imgX = (pt.x - displayRect.origin.x) * scaleX
+                let imgY = CGFloat(imgH) - (pt.y - displayRect.origin.y) * scaleY
+                maskCtx.addLine(to: CGPoint(x: imgX, y: imgY))
+            }
+            maskCtx.strokePath()
+
+            guard let maskCG = maskCtx.makeImage() else { return }
+            let maskImg = UIImage(cgImage: maskCG)
+
+            // 執行即時泊松邊緣擴散 Inpaint
+            let erased = AIInpainter.shared.inpaint(image: snapshotImage, maskImage: maskImg)
+
+            await MainActor.run {
+                self.currentImage = erased
+                self.isErasingStroke = false
+            }
         }
     }
 
@@ -191,7 +218,7 @@ public struct AIEraserView: View {
             HStack(alignment: .center) {
                 // 左側：取消按鈕
                 Button(action: {
-                    if lines.isEmpty {
+                    if undoStack.isEmpty {
                         onCancel()
                     } else {
                         showingCancelAlert = true
@@ -208,50 +235,52 @@ public struct AIEraserView: View {
                 HStack(spacing: 18) {
                     // 復原 (Undo) 圓環按鈕
                     Button(action: {
-                        if let last = lines.popLast() {
-                            redoLines.append(last)
+                        if let prev = undoStack.popLast() {
+                            redoStack.append(currentImage)
+                            currentImage = prev
                         }
                     }) {
                         ZStack {
                             Circle()
-                                .stroke(Color.gray.opacity(0.35), lineWidth: 1)
+                                .stroke(undoStack.isEmpty ? Color.gray.opacity(0.25) : Color.gray.opacity(0.45), lineWidth: 1)
                                 .frame(width: 36, height: 36)
                             Image(systemName: "arrow.uturn.backward")
                                 .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(lines.isEmpty ? Color.gray.opacity(0.35) : Color(red: 0.15, green: 0.15, blue: 0.15))
+                                .foregroundColor(undoStack.isEmpty ? Color.gray.opacity(0.3) : Color(red: 0.15, green: 0.15, blue: 0.15))
                         }
                     }
-                    .disabled(lines.isEmpty)
+                    .disabled(undoStack.isEmpty)
 
                     // 重做 (Redo) 圓環按鈕
                     Button(action: {
-                        if let redone = redoLines.popLast() {
-                            lines.append(redone)
+                        if let next = redoStack.popLast() {
+                            undoStack.append(currentImage)
+                            currentImage = next
                         }
                     }) {
                         ZStack {
                             Circle()
-                                .stroke(Color.gray.opacity(0.35), lineWidth: 1)
+                                .stroke(redoStack.isEmpty ? Color.gray.opacity(0.25) : Color.gray.opacity(0.45), lineWidth: 1)
                                 .frame(width: 36, height: 36)
                             Image(systemName: "arrow.uturn.forward")
                                 .font(.system(size: 14, weight: .medium))
-                                .foregroundColor(redoLines.isEmpty ? Color.gray.opacity(0.35) : Color(red: 0.15, green: 0.15, blue: 0.15))
+                                .foregroundColor(redoStack.isEmpty ? Color.gray.opacity(0.3) : Color(red: 0.15, green: 0.15, blue: 0.15))
                         }
                     }
-                    .disabled(redoLines.isEmpty)
+                    .disabled(redoStack.isEmpty)
                 }
 
                 Spacer()
 
-                // 右側：儲存按鈕 (有筆跡時點亮綠色，無筆跡時呈淺灰置灰)
+                // 右側：儲存按鈕 (有擦除時點亮綠色，無擦除時呈淺灰置灰)
                 Button(action: {
-                    performInpaint()
+                    onApply(currentImage)
                 }) {
                     Text("儲存")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(lines.isEmpty ? Color(white: 0.78) : Color(red: 0.13, green: 0.62, blue: 0.48))
+                        .foregroundColor(undoStack.isEmpty ? Color(white: 0.78) : Color(red: 0.13, green: 0.62, blue: 0.48))
                 }
-                .disabled(lines.isEmpty)
+                .disabled(undoStack.isEmpty)
             }
             .padding(.horizontal, 24)
             .padding(.top, 4)
@@ -262,80 +291,6 @@ public struct AIEraserView: View {
                 .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: -3)
                 .ignoresSafeArea(edges: .bottom)
         )
-    }
-
-    // MARK: - 核心運算 (AI Inpainting)
-
-    private func performInpaint() {
-        guard !lines.isEmpty else {
-            onCancel()
-            return
-        }
-
-        isProcessing = true
-        let original = sourceImage
-        let capturedLines = lines
-        let displaySize = imageDisplaySize
-
-        Task.detached(priority: .userInitiated) {
-            guard let cg = original.cgImage else {
-                await MainActor.run { self.onCancel() }
-                return
-            }
-
-            let imgW = cg.width
-            let imgH = cg.height
-            let scaleX = displaySize.width > 0 ? CGFloat(imgW) / displaySize.width : 1.0
-            let scaleY = displaySize.height > 0 ? CGFloat(imgH) / displaySize.height : 1.0
-
-            // 建立黑底白線遮罩 Bitmap
-            let colorSpace = CGColorSpaceCreateDeviceGray()
-            guard let maskContext = CGContext(
-                data: nil,
-                width: imgW,
-                height: imgH,
-                bitsPerComponent: 8,
-                bytesPerRow: imgW,
-                space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.none.rawValue
-            ) else {
-                await MainActor.run { self.onCancel() }
-                return
-            }
-
-            // 黑色背景 (代表保留區域)
-            maskContext.setFillColor(gray: 0.0, alpha: 1.0)
-            maskContext.fill(CGRect(x: 0, y: 0, width: imgW, height: imgH))
-
-            // 白色筆觸 (代表欲擦除修復區域)
-            maskContext.setStrokeColor(gray: 1.0, alpha: 1.0)
-            maskContext.setLineCap(.round)
-            maskContext.setLineJoin(.round)
-
-            for line in capturedLines {
-                guard let first = line.points.first else { continue }
-                maskContext.setLineWidth(line.lineWidth * max(scaleX, scaleY))
-                maskContext.beginPath()
-                maskContext.move(to: CGPoint(x: first.x * scaleX, y: CGFloat(imgH) - first.y * scaleY))
-                for pt in line.points.dropFirst() {
-                    maskContext.addLine(to: CGPoint(x: pt.x * scaleX, y: CGFloat(imgH) - pt.y * scaleY))
-                }
-                maskContext.strokePath()
-            }
-
-            guard let maskCG = maskContext.makeImage() else {
-                await MainActor.run { self.onCancel() }
-                return
-            }
-
-            let maskImg = UIImage(cgImage: maskCG)
-            let result = AIInpainter.shared.inpaint(image: original, maskImage: maskImg)
-
-            await MainActor.run {
-                self.isProcessing = false
-                self.onApply(result)
-            }
-        }
     }
 }
 
