@@ -44,6 +44,7 @@ public struct CameraScanView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var viewModel = ScannerViewModel()
     @State private var showingFolderSwitchSheet: Bool = false
+    @State private var showingQuickEnhancePopover: Bool = false
     @State private var toastMessage: String? = nil
 
     public init() {}
@@ -71,6 +72,12 @@ public struct CameraScanView: View {
                             .clipped()
                             .contentShape(Rectangle())
                             .onTapGesture {
+                                if showingQuickEnhancePopover {
+                                    withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                                        showingQuickEnhancePopover = false
+                                    }
+                                    return
+                                }
                                 if viewModel.touchToScan {
                                     viewModel.triggerCapture()
                                 }
@@ -134,6 +141,31 @@ public struct CameraScanView: View {
                 // 2. 下半部：純黑控制區 (1:1 對齊原廠比例，只佔底部約 25% 高度，緊湊無空洞)
                 bottomPureBlackArea
                     .background(Color.black)
+            }
+
+            // 原廠 1:1 即時 AI 增強懸浮面板 (圖一)
+            if showingQuickEnhancePopover {
+                Color.black.opacity(0.001)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.85)) {
+                            showingQuickEnhancePopover = false
+                        }
+                    }
+
+                VStack {
+                    Spacer()
+                        .frame(height: 140)
+
+                    quickEnhancePopoverView
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.95, anchor: .topTrailing).combined(with: .opacity),
+                            removal: .scale(scale: 0.95, anchor: .topTrailing).combined(with: .opacity)
+                        ))
+
+                    Spacer()
+                }
+                .zIndex(20)
             }
 
             // 快門閃爍白光視覺回饋
@@ -242,15 +274,18 @@ public struct CameraScanView: View {
         .padding(.top, 52) // 避開動態島/安全區域
     }
 
-    // MARK: - 頂部第二行快捷按鈕列 (閃光燈、定時器、AUTO SCAN、濾鏡)
+    // MARK: - 頂部第二行快捷按鈕列 (閃光燈、定時器、AUTO SCAN、濾鏡增強面板)
 
     private var topQuickControls: some View {
         HStack {
-            // 1. 閃光燈
-            Button(action: { viewModel.toggleTorch() }) {
-                Image(systemName: viewModel.isFlashlightOn ? "bolt.fill" : "bolt.slash")
+            // 1. 閃光燈 (原廠 1:1 三段切換：關閉、自動、強制閃光)
+            Button(action: {
+                let mode = viewModel.cycleFlashMode()
+                showToast(mode.rawValue)
+            }) {
+                Image(systemName: viewModel.flashMode.iconName)
                     .font(.system(size: 18))
-                    .foregroundColor(viewModel.isFlashlightOn ? .yellow : .white)
+                    .foregroundColor(viewModel.flashMode == .on ? Color(red: 0.98, green: 0.82, blue: 0.35) : .white)
                     .frame(width: 36, height: 36)
                     .background(Color.black.opacity(0.3))
                     .clipShape(Circle())
@@ -297,14 +332,18 @@ public struct CameraScanView: View {
 
             Spacer()
 
-            // 4. 色彩濾鏡 (1:1 帶右上角紅點提示)
-            Button(action: { viewModel.cycleFilterMode() }) {
+            // 4. 即時增強面板 (原廠 1:1 圖一 sparkles 按鈕，展開 色彩校正 / 移除手指 Beta / 拉直 👑)
+            Button(action: {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
+                    showingQuickEnhancePopover.toggle()
+                }
+            }) {
                 ZStack(alignment: .topTrailing) {
                     Image(systemName: "sparkles")
                         .font(.system(size: 18))
                         .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
                         .frame(width: 36, height: 36)
-                        .background(Color.black.opacity(0.3))
+                        .background(showingQuickEnhancePopover ? Color.white.opacity(0.25) : Color.black.opacity(0.3))
                         .clipShape(Circle())
 
                     // 原廠紅色小圓點
@@ -316,6 +355,95 @@ public struct CameraScanView: View {
             }
         }
         .padding(.horizontal, 28)
+    }
+
+    // MARK: - 原廠 1:1 即時 AI 增強設定面板 (圖一 Popover)
+
+    private var quickEnhancePopoverView: some View {
+        VStack(spacing: 26) {
+            // 1. 色彩校正
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("色彩校正")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                    Text("關閉校正功能後，將保留頁面的原始顏色。")
+                        .font(.system(size: 12))
+                        .foregroundColor(Color.white.opacity(0.72))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer()
+
+                Toggle("", isOn: $viewModel.presetColorEnhance)
+                    .labelsHidden()
+                    .tint(Color(red: 0.98, green: 0.82, blue: 0.35))
+            }
+
+            // 2. 移除手指 (Beta)
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text("移除手指")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.white)
+
+                        Text("Beta")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.black)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color(red: 0.98, green: 0.82, blue: 0.35))
+                            .cornerRadius(4)
+                    }
+
+                    Text("從掃描中移除可見的手指。")
+                        .font(.system(size: 12))
+                        .foregroundColor(Color.white.opacity(0.72))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer()
+
+                Toggle("", isOn: $viewModel.autoRemoveFinger)
+                    .labelsHidden()
+                    .tint(Color(red: 0.98, green: 0.82, blue: 0.35))
+            }
+
+            // 3. 拉直 (👑)
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text("拉直")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.white)
+
+                        Image(systemName: "crown.fill")
+                            .font(.system(size: 12))
+                            .foregroundColor(Color(red: 0.98, green: 0.82, blue: 0.35))
+                    }
+
+                    Text("糾正掃描文件的對齊。")
+                        .font(.system(size: 12))
+                        .foregroundColor(Color.white.opacity(0.72))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer()
+
+                Toggle("", isOn: $viewModel.presetCurveCorrection)
+                    .labelsHidden()
+                    .tint(Color(red: 0.98, green: 0.82, blue: 0.35))
+            }
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 24)
+        .background(
+            RoundedRectangle(cornerRadius: 24)
+                .fill(Color(red: 0.17, green: 0.17, blue: 0.18).opacity(0.96))
+                .shadow(color: .black.opacity(0.5), radius: 24, x: 0, y: 12)
+        )
+        .padding(.horizontal, 16)
     }
 
     // MARK: - 取景窗底緣浮動模式切換 (1:1 對齊原廠圖四：1 頁 / 2 頁 / 自動)

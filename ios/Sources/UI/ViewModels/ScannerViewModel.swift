@@ -16,6 +16,23 @@ public enum ScanMode: String, CaseIterable, Identifiable {
     public var id: String { rawValue }
 }
 
+/// 閃光燈模式 (原廠 1:1 三段循環：關閉、自動、強制閃光)
+public enum FlashMode: String, CaseIterable, Identifiable {
+    case off = "關閉"
+    case auto = "自動"
+    case on = "強制閃光"
+
+    public var id: String { rawValue }
+
+    public var iconName: String {
+        switch self {
+        case .off: return "bolt.slash"
+        case .auto: return "bolt.badge.a"
+        case .on: return "bolt.fill"
+        }
+    }
+}
+
 /// 啟動應用首頁偏好 (對齊原廠 setting_start_screen)
 public enum StartScreenMode: String, CaseIterable, Identifiable {
     case camera = "相機取景 (秒開即掃)"
@@ -107,6 +124,8 @@ public final class ScannerViewModel: ObservableObject {
     @Published public var presetCurveCorrection: Bool = false
     @Published public var presetColorEnhance: Bool = true
     @Published public var presetTextDarken: Bool = true
+    /// 移除手指 (原廠 Beta 功能，預設開啟)
+    @Published public var autoRemoveFinger: Bool = true
     @Published public var autoSaveToGallery: Bool = false
     @Published public var aiSaveMethod: AISaveMethod = .overwrite
 
@@ -132,14 +151,44 @@ public final class ScannerViewModel: ObservableObject {
         }
     }
 
-    @Published public var isFlashlightOn: Bool = false {
+    /// 原廠 1:1 三段式閃光燈模式 (關閉 / 自動 / 強制閃光)
+    @Published public var flashMode: FlashMode = .off {
         didSet {
-            guard oldValue != isFlashlightOn else { return }
-            cameraManager.setTorch(on: isFlashlightOn)
+            guard oldValue != flashMode else { return }
+            applyFlashMode(flashMode)
         }
     }
 
+    public var isFlashlightOn: Bool {
+        flashMode == .on
+    }
+
     @Published public var isShutterFlashing: Bool = false
+
+    /// 切換閃光燈模式 (關閉 -> 自動 -> 強制閃光 -> 關閉)
+    @discardableResult
+    public func cycleFlashMode() -> FlashMode {
+        switch flashMode {
+        case .off:
+            flashMode = .auto
+        case .auto:
+            flashMode = .on
+        case .on:
+            flashMode = .off
+        }
+        return flashMode
+    }
+
+    private func applyFlashMode(_ mode: FlashMode) {
+        switch mode {
+        case .off:
+            cameraManager.setTorchMode(.off)
+        case .auto:
+            cameraManager.setTorchMode(.auto)
+        case .on:
+            cameraManager.setTorchMode(.on)
+        }
+    }
 
     // MARK: - 硬體服務
 
@@ -348,6 +397,8 @@ public final class ScannerViewModel: ObservableObject {
         let darkenText = presetTextDarken
         let splitDoublePage = (scanMode == .doublePage)
         let leftToRight = twoPagesOrderLTR
+        let removeFinger = autoRemoveFinger
+        let curveCorrection = presetCurveCorrection
 
         Task.detached(priority: .userInitiated) { [weak self] in
             let result = ScannerViewModel.processCapture(
@@ -358,7 +409,9 @@ public final class ScannerViewModel: ObservableObject {
                 enhanceColor: enhanceColor,
                 darkenText: darkenText,
                 splitDoublePage: splitDoublePage,
-                leftToRight: leftToRight
+                leftToRight: leftToRight,
+                curveCorrection: curveCorrection,
+                removeFinger: removeFinger
             )
             guard let self = self else { return }
             await self.finishCapture(result, document: frameDocument)
@@ -371,7 +424,7 @@ public final class ScannerViewModel: ObservableObject {
         let document: DetectedDocument?
     }
 
-    /// 影像後處理（在背景執行）：透視裁切 → 雙頁分割 → 套濾鏡
+    /// 影像後處理（在背景執行）：透視裁切 → 雙頁分割 → 手指移除 → 套濾鏡
     nonisolated private static func processCapture(
         rawImage: UIImage,
         document: DetectedDocument?,
@@ -380,7 +433,9 @@ public final class ScannerViewModel: ObservableObject {
         enhanceColor: Bool,
         darkenText: Bool,
         splitDoublePage: Bool,
-        leftToRight: Bool
+        leftToRight: Bool,
+        curveCorrection: Bool,
+        removeFinger: Bool
     ) -> CaptureResult? {
         let rectifier = DocumentRectifier.shared
         let geometric = rectifier.geometryCorrected(image: rawImage, document: document, autoCrop: autoCrop)
@@ -393,11 +448,21 @@ public final class ScannerViewModel: ObservableObject {
             }
         }
 
-        let processedPages = geometricPages.map {
+        // 若開啟移除手指 (Beta)，進行自動 AI 手指辨識抹平
+        let cleanedPages: [UIImage]
+        if removeFinger {
+            cleanedPages = geometricPages.map { page in
+                FingerRemovalProcessor.shared.removeFingers(image: page)
+            }
+        } else {
+            cleanedPages = geometricPages
+        }
+
+        let processedPages = cleanedPages.map {
             rectifier.applyFilter(mode, to: $0, enhanceColor: enhanceColor, darkenText: darkenText)
         }
         guard !processedPages.isEmpty else { return nil }
-        return CaptureResult(geometricPages: geometricPages, processedPages: processedPages, document: document)
+        return CaptureResult(geometricPages: cleanedPages, processedPages: processedPages, document: document)
     }
 
     private func finishCapture(_ result: CaptureResult?, document: DetectedDocument?) async {

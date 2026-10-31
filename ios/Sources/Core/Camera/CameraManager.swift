@@ -312,23 +312,35 @@ public final class CameraManager: NSObject, ObservableObject {
 
     /// 開啟或關閉補光燈
     public func setTorch(on: Bool) {
+        setTorchMode(on ? .on : .off)
+    }
+
+    /// 設定補光燈／閃光燈模式 (.off, .on, .auto)
+    public func setTorchMode(_ mode: AVCaptureDevice.TorchMode) {
         sessionQueue.async { [weak self] in
             guard let self = self, let camera = self.videoDevice, camera.hasTorch else { return }
-            guard camera.isTorchModeSupported(on ? .on : .off) else { return }
             do {
                 try camera.lockForConfiguration()
                 defer { camera.unlockForConfiguration() }
-                if on {
-                    try camera.setTorchModeOn(level: AVCaptureDevice.maxAvailableTorchLevel)
-                } else {
+                if camera.isTorchModeSupported(mode) {
+                    if mode == .on {
+                        try camera.setTorchModeOn(level: AVCaptureDevice.maxAvailableTorchLevel)
+                    } else {
+                        camera.torchMode = mode
+                    }
+                    DispatchQueue.main.async {
+                        self.isTorchOn = (mode == .on)
+                        self.isTorchAvailable = true
+                    }
+                } else if mode == .auto && camera.isTorchModeSupported(.off) {
                     camera.torchMode = .off
-                }
-                DispatchQueue.main.async {
-                    self.isTorchOn = on
-                    self.isTorchAvailable = true
+                    DispatchQueue.main.async {
+                        self.isTorchOn = false
+                        self.isTorchAvailable = true
+                    }
                 }
             } catch {
-                print("[CameraManager] 手電筒切換失敗: \(error)")
+                print("[CameraManager] 補光燈模式切換失敗 (\(mode)): \(error)")
                 DispatchQueue.main.async { self.isTorchOn = false }
             }
         }
