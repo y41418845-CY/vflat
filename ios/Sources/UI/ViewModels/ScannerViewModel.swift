@@ -160,7 +160,8 @@ public final class ScannerViewModel: ObservableObject {
     }
 
     public var isFlashlightOn: Bool {
-        flashMode == .on
+        get { flashMode == .on }
+        set { flashMode = newValue ? .on : .off }
     }
 
     @Published public var isShutterFlashing: Bool = false
@@ -336,8 +337,8 @@ public final class ScannerViewModel: ObservableObject {
         cancelCountdown()
         cameraManager.stopSession()
         motionSensor.stopUpdates()
-        if isFlashlightOn {
-            isFlashlightOn = false
+        if flashMode != .off {
+            flashMode = .off
         }
     }
 
@@ -550,7 +551,7 @@ public final class ScannerViewModel: ObservableObject {
             showError("此鏡頭不支援補光燈")
             return
         }
-        isFlashlightOn.toggle()
+        cycleFlashMode()
     }
 
     public func cycleFilterMode() {
