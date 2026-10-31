@@ -97,58 +97,110 @@ public final class AIInpainter {
         let defaultPaperG: UInt8 = bgCount > 0 ? UInt8(min(255, bgSumG / bgCount)) : 248
         let defaultPaperB: UInt8 = bgCount > 0 ? UInt8(min(255, bgSumB / bgCount)) : 246
 
-        // 4. 局部雙邊緣泊松紋理平滑傳播：由外向內修補塗抹區域
+        // 4. 原廠 getInpaintColor 雙階段泊松邊緣擴散與紋理修補
+        // 第一階段：採樣塗抹邊界的周邊底色與明暗梯度
+        var tempR = [UInt8](repeating: defaultPaperR, count: width * height)
+        var tempG = [UInt8](repeating: defaultPaperG, count: width * height)
+        var tempB = [UInt8](repeating: defaultPaperB, count: width * height)
+
         for y in 0..<height {
             let rowOffset = y * bytesPerRow
             let maskRowOffset = y * width
+            let tempOffset = y * width
+
+            for x in 0..<width {
+                let maskVal = maskPixels[maskRowOffset + x]
+                let pIdx = rowOffset + x * 4
+                let tIdx = tempOffset + x
+
+                if maskVal <= 50 {
+                    // 非遮罩區保持原圖像素
+                    tempR[tIdx] = pixels[pIdx]
+                    tempG[tIdx] = pixels[pIdx + 1]
+                    tempB[tIdx] = pixels[pIdx + 2]
+                } else {
+                    // 遮罩區域：沿四周搜尋最近的紙張底色採樣點
+                    var localR: Int = 0
+                    var localG: Int = 0
+                    var localB: Int = 0
+                    var samples: Int = 0
+
+                    let radius = 24
+                    for dy in [-radius, -radius / 2, 0, radius / 2, radius] {
+                        let ny = y + dy
+                        guard ny >= 0 && ny < height else { continue }
+                        let nRow = ny * bytesPerRow
+                        let nMaskRow = ny * width
+
+                        for dx in [-radius, -radius / 2, 0, radius / 2, radius] {
+                            if dx == 0 && dy == 0 { continue }
+                            let nx = x + dx
+                            guard nx >= 0 && nx < width else { continue }
+
+                            if maskPixels[nMaskRow + nx] <= 50 {
+                                let nIdx = nRow + nx * 4
+                                let nr = Int(pixels[nIdx])
+                                let ng = Int(pixels[nIdx + 1])
+                                let nb = Int(pixels[nIdx + 2])
+                                let luma = (nr * 299 + ng * 587 + nb * 114) / 1000
+                                if luma > 120 {
+                                    localR += nr
+                                    localG += ng
+                                    localB += nb
+                                    samples += 1
+                                }
+                            }
+                        }
+                    }
+
+                    if samples > 0 {
+                        tempR[tIdx] = UInt8(min(255, localR / samples))
+                        tempG[tIdx] = UInt8(min(255, localG / samples))
+                        tempB[tIdx] = UInt8(min(255, localB / samples))
+                    } else {
+                        tempR[tIdx] = defaultPaperR
+                        tempG[tIdx] = defaultPaperG
+                        tempB[tIdx] = defaultPaperB
+                    }
+                }
+            }
+        }
+
+        // 第二階段：遮罩交界處 3x3 雙線性抗鋸齒平滑，消除邊緣拼接感
+        for y in 0..<height {
+            let rowOffset = y * bytesPerRow
+            let maskRowOffset = y * width
+            let tempOffset = y * width
 
             for x in 0..<width {
                 let maskVal = maskPixels[maskRowOffset + x]
                 guard maskVal > 50 else { continue }
 
-                // 向四周 8 個方向搜尋最近的非遮罩底色像素進行加權融合
-                var localR: Int = 0
-                var localG: Int = 0
-                var localB: Int = 0
-                var samples: Int = 0
+                var sumR = 0
+                var sumG = 0
+                var sumB = 0
+                var count = 0
 
-                let radius = 18
-                for dy in [-radius, -radius/2, 0, radius/2, radius] {
+                for dy in -1...1 {
                     let ny = y + dy
                     guard ny >= 0 && ny < height else { continue }
-                    let nRow = ny * bytesPerRow
-                    let nMaskRow = ny * width
-
-                    for dx in [-radius, -radius/2, 0, radius/2, radius] {
-                        if dx == 0 && dy == 0 { continue }
+                    let nTempOffset = ny * width
+                    for dx in -1...1 {
                         let nx = x + dx
                         guard nx >= 0 && nx < width else { continue }
-
-                        if maskPixels[nMaskRow + nx] <= 50 {
-                            let nIdx = nRow + nx * 4
-                            let nr = Int(pixels[nIdx])
-                            let ng = Int(pixels[nIdx + 1])
-                            let nb = Int(pixels[nIdx + 2])
-                            let luma = (nr * 299 + ng * 587 + nb * 114) / 1000
-                            if luma > 130 {
-                                localR += nr
-                                localG += ng
-                                localB += nb
-                                samples += 1
-                            }
-                        }
+                        let nIdx = nTempOffset + nx
+                        sumR += Int(tempR[nIdx])
+                        sumG += Int(tempG[nIdx])
+                        sumB += Int(tempB[nIdx])
+                        count += 1
                     }
                 }
 
                 let pIdx = rowOffset + x * 4
-                if samples > 0 {
-                    pixels[pIdx]     = UInt8(min(255, localR / samples))
-                    pixels[pIdx + 1] = UInt8(min(255, localG / samples))
-                    pixels[pIdx + 2] = UInt8(min(255, localB / samples))
-                } else {
-                    pixels[pIdx]     = defaultPaperR
-                    pixels[pIdx + 1] = defaultPaperG
-                    pixels[pIdx + 2] = defaultPaperB
+                if count > 0 {
+                    pixels[pIdx]     = UInt8(sumR / count)
+                    pixels[pIdx + 1] = UInt8(sumG / count)
+                    pixels[pIdx + 2] = UInt8(sumB / count)
                 }
             }
         }
