@@ -70,7 +70,7 @@ def main():
     print(f"[INFO] Initial Status: {status}, Conclusion: {conclusion}", flush=True)
 
     start_wait = time.time()
-    while status in ['in_progress', 'queued', 'waiting']:
+    while status != 'completed':
         elapsed = int(time.time() - start_wait)
         print(f"[INFO] Waiting for build completion... ({elapsed}s elapsed, status: {status})", flush=True)
         time.sleep(15)

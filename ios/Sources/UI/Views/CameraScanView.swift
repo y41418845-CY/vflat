@@ -58,13 +58,13 @@ public struct CameraScanView: View {
             Color.black.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // 1. 上半部：4:3 比例標準相機取景窗 (嚴格對齊圖一)
+                // 1. 上半部：相機取景預覽區 (滿版鋪滿底部控制列以上的所有區域，包含頂部動態島)
                 GeometryReader { geo in
                     let w = geo.size.width
-                    let h = w * 4.0 / 3.0 // 4:3 比例 (高:寬 = 4:3)
+                    let h = geo.size.height
 
                     ZStack(alignment: .bottom) {
-                        // (1) Metal 相機預覽畫面 (限制在 4:3 內，不延伸到下半部)
+                        // (1) Metal 相機預覽畫面
                         #if canImport(UIKit)
                         MetalDewarpViewRepresentable(viewModel: viewModel)
                             .frame(width: w, height: h)
@@ -85,14 +85,14 @@ public struct CameraScanView: View {
                             .allowsHitTesting(false)
 
                         // (3) 取景窗頂部浮動工具列
-                        VStack(spacing: 10) {
+                        VStack(spacing: 12) {
                             topNavigationBar
                             topQuickControls
                             Spacer()
 
-                            // (4) 取景窗底緣浮動切換列 (1頁 / 2頁 / 自動)
+                            // (4) 取景窗底緣浮動切換列 (1頁 / 2頁 / 自動)，緊貼相機預覽底緣
                             pageModeSelector
-                                .padding(.bottom, 12)
+                                .padding(.bottom, 14)
                         }
                         .frame(width: w, height: h)
 
@@ -129,11 +129,10 @@ public struct CameraScanView: View {
                     }
                     .frame(width: w, height: h)
                 }
-                .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                .ignoresSafeArea(edges: .top)
 
-                // 2. 下半部：純黑控制區 (原廠圖一 1:1，完全無相機畫面！)
+                // 2. 下半部：純黑控制區 (1:1 對齊原廠比例，只佔底部約 25% 高度，緊湊無空洞)
                 bottomPureBlackArea
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black)
             }
 
@@ -211,44 +210,47 @@ public struct CameraScanView: View {
     // MARK: - 頂部導航列 (1:1 對齊圖一：📁 資料庫 | ⚙️)
 
     private var topNavigationBar: some View {
-        HStack {
+        HStack(alignment: .center) {
             // 資料庫返回膠囊
             Button(action: { dismiss() }) {
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     Image(systemName: "folder")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                     Text("資料庫")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                 }
                 .foregroundColor(.white)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
                 .background(Color.black.opacity(0.45))
                 .clipShape(Capsule())
             }
+            .fixedSize()
 
             Spacer()
 
-            // 👑 Upgrade 尊榮 VIP 特權膠囊 (1:1 對齊原廠圖四)
+            // 👑 Upgrade 尊榮 VIP 特權膠囊 (1:1 對齊原廠圖四，單行絕不折行)
             Button(action: {
                 showToast("👑 VIP 旗艦永久授權已生效，全功能無限暢享！")
             }) {
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     Image(systemName: "crown.fill")
-                        .font(.system(size: 14))
+                        .font(.system(size: 13))
                         .foregroundColor(Color(red: 0.98, green: 0.78, blue: 0.25))
                     Text("Upgrade")
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.system(size: 15, weight: .bold))
                         .foregroundColor(.white)
+                        .lineLimit(1)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 7)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
                 .background(Color.black.opacity(0.55))
                 .clipShape(Capsule())
                 .overlay(
                     Capsule().stroke(Color(red: 0.98, green: 0.78, blue: 0.25), lineWidth: 1.5)
                 )
             }
+            .fixedSize()
 
             Spacer()
 
@@ -261,9 +263,10 @@ public struct CameraScanView: View {
                     .background(Color.black.opacity(0.45))
                     .clipShape(Circle())
             }
+            .fixedSize()
         }
         .padding(.horizontal, 16)
-        .padding(.top, 46) // 避開動態島/安全區域
+        .padding(.top, 50) // 避開動態島/安全區域
     }
 
     // MARK: - 頂部第二行快捷按鈕列 (閃光燈、定時器、AUTO SCAN、濾鏡)
@@ -394,27 +397,26 @@ public struct CameraScanView: View {
 
     private var bottomPureBlackArea: some View {
         VStack(spacing: 0) {
-            Spacer()
-
             // 1. 當前資料夾選擇膠囊 (📁 涓建築 ⌵)
             Button(action: {
                 showingFolderSwitchSheet = true
             }) {
                 HStack(spacing: 8) {
                     Image(systemName: "folder")
-                        .font(.system(size: 15))
+                        .font(.system(size: 14))
                     Text(viewModel.pageStore.currentFolderName)
-                        .font(.system(size: 17, weight: .medium))
+                        .font(.system(size: 16, weight: .medium))
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                 }
                 .foregroundColor(.white)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 8)
                 .background(Color(white: 0.16))
                 .clipShape(Capsule())
             }
-            .padding(.bottom, 24)
+            .padding(.top, 16)
+            .padding(.bottom, 20)
 
             // 2. 快門控制列 (左：最新縮圖、中：白色雙環快門、右：相簿)
             HStack(alignment: .center) {
@@ -482,7 +484,7 @@ public struct CameraScanView: View {
                 .frame(width: 64)
             }
             .padding(.horizontal, 36)
-            .padding(.bottom, 40)
+            .padding(.bottom, 36)
         }
     }
 
