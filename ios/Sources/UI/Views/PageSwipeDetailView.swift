@@ -85,11 +85,11 @@ public struct PageSwipeDetailView: View {
     @State private var showingThumbnailStrip: Bool = false
     @State private var toastMessage: String? = nil
     @State private var processingDescription: String? = nil
-    @State private var imageRevision: UUID = UUID()
+    @State private var showingAIEraser: Bool = false
+    @State private var eraserImage: UIImage? = nil
 
     private enum ActiveModal: Identifiable {
         case aiEnhancer
-        case aiEraser(UIImage)
         case pdfExport
         case ocrResult(String)
         case jpgShare(URL)
@@ -99,8 +99,6 @@ public struct PageSwipeDetailView: View {
             switch self {
             case .aiEnhancer:
                 return "aiEnhancer"
-            case .aiEraser:
-                return "aiEraser"
             case .pdfExport:
                 return "pdfExport"
             case .ocrResult(let text):
@@ -201,32 +199,13 @@ public struct PageSwipeDetailView: View {
             case .aiEnhancer:
                 AIEnhancerSheet { type in
                     if type == .eraser, let page = currentPage, let img = pageStore.image(for: page) {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                            activeModal = .aiEraser(img)
+                        eraserImage = img
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            showingAIEraser = true
                         }
                     } else {
                         runAI(type)
                     }
-                }
-            case .aiEraser(let img):
-                if let page = currentPage {
-                    AIEraserView(
-                        sourceImage: img,
-                        onApply: { cleaned in
-                            activeModal = nil
-                            Task {
-                                await pageStore.updateProcessed(id: page.id, image: cleaned, filterMode: page.filterMode)
-                                await MainActor.run {
-                                    self.imageRevision = UUID()
-                                    self.showToast("塗鴉橡皮擦完成")
-                                }
-                            }
-                        },
-                        onCancel: {
-                            activeModal = nil
-                            showToast("塗鴉橡皮擦已取消")
-                        }
-                    )
                 }
             case .pdfExport:
                 PDFExportSheet(viewModel: viewModel)
@@ -236,6 +215,26 @@ public struct PageSwipeDetailView: View {
                 ActivityView(activityItems: [fileURL])
             case .moveFolder(let pageId):
                 MoveFolderSheet(viewModel: viewModel, pageIds: [pageId])
+            }
+        }
+        .fullScreenCover(isPresented: $showingAIEraser) {
+            if let img = eraserImage, let page = currentPage {
+                AIEraserView(
+                    sourceImage: img,
+                    onApply: { cleaned in
+                        showingAIEraser = false
+                        Task {
+                            await pageStore.updateProcessed(id: page.id, image: cleaned, filterMode: page.filterMode)
+                            await MainActor.run {
+                                self.showToast("塗鴉橡皮擦完成")
+                            }
+                        }
+                    },
+                    onCancel: {
+                        showingAIEraser = false
+                        showToast("塗鴉橡皮擦已取消")
+                    }
+                )
             }
         }
         .sheet(isPresented: $showingLoupeCropView) {
