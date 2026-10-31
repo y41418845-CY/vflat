@@ -241,6 +241,8 @@ public struct CameraScanView: View {
                         .font(.system(size: 15, weight: .bold))
                         .foregroundColor(.white)
                         .lineLimit(1)
+                        .allowsTightening(false)
+                        .fixedSize(horizontal: true, vertical: true)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 6)
@@ -250,7 +252,8 @@ public struct CameraScanView: View {
                     Capsule().stroke(Color(red: 0.98, green: 0.78, blue: 0.25), lineWidth: 1.5)
                 )
             }
-            .fixedSize()
+            .layoutPriority(10)
+            .fixedSize(horizontal: true, vertical: true)
 
             Spacer()
 

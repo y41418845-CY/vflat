@@ -76,28 +76,12 @@ public struct AIEnhancerSheet: View {
             }
             .padding(.horizontal, 20)
 
-            // 底部「極致全開」全套流水線捷徑
-            Button(action: {
-                onSelect(.ultra)
-                dismiss()
-            }) {
-                HStack(spacing: 8) {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 15, weight: .semibold))
-                    Text("極致全開 (一鍵拉直 + 去陰影 + 去手指 + 銳化)")
-                        .font(.system(size: 14, weight: .semibold))
-                }
-                .foregroundColor(Color(red: 0.08, green: 0.65, blue: 0.42))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(Color(red: 0.08, green: 0.65, blue: 0.42).opacity(0.1))
-                .cornerRadius(12)
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 16)
+            .padding(.bottom, 24)
         }
         .background(Color.white)
-        .presentationDetents([.fraction(0.55), .medium])
+        .presentationDetents([.height(390)])
         .presentationDragIndicator(.visible)
     }
 
